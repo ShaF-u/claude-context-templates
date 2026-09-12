@@ -1,7 +1,37 @@
 # コンテキスト削減テンプレート
 
 どのプロジェクトでも流用できる、Claude Code向けのコンテキスト削減手段をまとめたもの。
-すべて「Markdownを書くだけ」で実現でき、追加のツール開発は不要。
+Markdownだけで完結する部分（`AI/` `Docs/` `Shared/`）と、
+実際に動くMCPサーバー（`Core/`）の2階建て構成。
+
+## Core（MCPサーバー）
+
+`Core/` は、別プロジェクト（ClaudeGui）で開発していたContext EngineのうちGUI部分を除いた、
+C++製のMCPサーバー。プロジェクトが大規模化した際に、Markdownだけでは足りなくなる
+（コードベース全体を索引して意図ベースで関連部分だけ取得する、等の）部分を担う。
+GUIには依存しないスタンドアロンのCMakeプロジェクトとして、このリポジトリへ独立して
+移植・動作確認済み（ビルド・全テスト1230件パス・MCP接続の実疎通を確認済み）。
+
+### 提供する主な機能
+- `symbol_search` / `keyword_search` — シンボル名・キーワードでのコード検索
+- `context_retrieve` / `context_fetch` — 意図ベースの関連コード取得（予算・圧縮・キャッシュ付き）
+- `include_graph` / `call_graph` / `inheritance_graph` / `reference_graph` / `ast_tree`
+- `impact_analysis` — 変更の影響範囲推定
+- Git系ツール（読み取り + オプトインの書き込みコマンド）
+
+### ビルド方法
+```
+cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+cmake --build build --config Debug --target aistudio_core_cli
+```
+
+### Claude Codeへの接続
+`.mcp.json` に `context-reduction-core` として登録済み。プロジェクトルートでビルド後、
+Claude Codeがこのリポジトリを開けば接続候補として現れる（初回は承認が必要）。
+
+### 今後の方向性
+複数のClaude（セッション）を同時に動かす際、タスク状況を横断的に確認できるGUIを
+別途実装する構想がある（現時点では未着手）。
 
 ## フォルダ構成
 

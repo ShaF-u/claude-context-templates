@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "context-reduction-core": {
+      "type": "stdio",
+      "command": "build/Core/Debug/aistudio_core_cli.exe",
+      "args": [
+        "--mcp"
+      ],
+      "env": {}
+    }
+  }
+}
