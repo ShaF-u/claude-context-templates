@@ -23,8 +23,8 @@ bool CallGraph::IsSourceFile(const std::string& path) {
                         [&](const char* candidate) { return extension == candidate; });
 }
 
-Result<void> CallGraph::Build(const std::string& root) {
-    const FileScanner scanner;
+Result<void> CallGraph::Build(const std::string& root, const std::vector<std::string>& extra_ignore_patterns) {
+    const FileScanner scanner(FileScanner::MakeOptions(extra_ignore_patterns));
     const auto scan_result = scanner.Scan(root);
     if (!scan_result) {
         return Result<void>::Fail(scan_result.Err());

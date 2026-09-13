@@ -33,7 +33,11 @@ namespace aistudio::core {
 // without it, that combination would be a data race.
 class SymbolIndex {
 public:
-    Result<void> Build(const std::string& root);
+    // `extra_ignore_patterns` is appended to FileScanner's own defaults
+    // (see FileScanner::MakeOptions) -- lets a host project exclude extra
+    // paths (e.g. this tool's own checkout, see main.cpp's
+    // scan.extra_ignore_patterns config) without hardcoding them here.
+    Result<void> Build(const std::string& root, const std::vector<std::string>& extra_ignore_patterns = {});
 
     // Re-extracts just `path`'s symbols and replaces them in this index,
     // without re-scanning the rest of the project via FileScanner --

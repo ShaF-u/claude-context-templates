@@ -41,7 +41,8 @@ namespace aistudio::core {
 // RemoveFile() while another thread reads this index.
 class IncludeGraph {
 public:
-    Result<void> Build(const std::string& root);
+    // `extra_ignore_patterns`: see SymbolIndex::Build's identical parameter.
+    Result<void> Build(const std::string& root, const std::vector<std::string>& extra_ignore_patterns = {});
 
     // Re-extracts just `path`'s own #include edges (without re-scanning
     // or re-reading any other file's content -- docs/ROADMAP.md

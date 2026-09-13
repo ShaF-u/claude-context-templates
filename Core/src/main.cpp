@@ -5,6 +5,7 @@
 #include "Core/Config/Config.hpp"
 #include "Core/Database/Database.hpp"
 #include "Core/Database/Migrator.hpp"
+#include "Core/Database/StringList.hpp"
 #include "Core/Database/TaskRepository.hpp"
 #include "Core/Event/EventBus.hpp"
 #include "Core/IDE/EditorStateStore.hpp"
@@ -139,6 +140,17 @@ std::string PerProcessLogFileName(const std::string& base_name) {
     return base_name + "_" + std::to_string(pid) + ".log";
 }
 
+// `scan.extra_ignore_patterns` in aistudio.config (comma-separated, same
+// format as plugin.ids -- see SplitStringList): appended to every
+// Index::Build() call's own FileScanner, on top of FileScanner's compiled-
+// in DefaultIgnorePatterns(). Exists so a host project can exclude paths
+// specific to its own layout (e.g. this tool checked out as a submodule
+// under a project-specific folder name) without that name being baked
+// into this template's generic defaults.
+std::vector<std::string> LoadExtraIgnorePatterns(const Config& config) {
+    return SplitStringList(config.GetOr("scan.extra_ignore_patterns", ""));
+}
+
 // MCP stdio mode (docs/MASTER_SPEC.md #63, CLAUDE.md's 2026-09-01
 // direction correction): a deliberately separate, quiet bootstrap path
 // rather than a branch threaded through the verbose HTTP bootstrap
@@ -179,6 +191,7 @@ int RunMcpMode() {
         AISTUDIO_LOG_WARN("Core.MCP", "no config file found, using defaults: " + load_result.Err().message);
     }
     const auto project_root = config.GetOr("project.root", ".");
+    const auto extra_ignore_patterns = LoadExtraIgnorePatterns(config);
     // Opt-in only (this task's design discussion, see docs/ROADMAP.md):
     // git_commit/git_branch/git_stash stay absent from tools/list unless
     // an operator explicitly sets this in aistudio.config -- the
@@ -234,12 +247,12 @@ int RunMcpMode() {
     }
 
     SymbolIndex symbol_index;
-    if (const auto index_result = symbol_index.Build(project_root); !index_result) {
+    if (const auto index_result = symbol_index.Build(project_root, extra_ignore_patterns); !index_result) {
         AISTUDIO_LOG_WARN("Core.MCP", "SymbolIndex build failed: " + index_result.Err().message);
     }
 
     IncludeGraph include_graph;
-    if (const auto graph_result = include_graph.Build(project_root); !graph_result) {
+    if (const auto graph_result = include_graph.Build(project_root, extra_ignore_patterns); !graph_result) {
         AISTUDIO_LOG_WARN("Core.MCP", "IncludeGraph build failed: " + graph_result.Err().message);
     }
 
@@ -248,15 +261,15 @@ int RunMcpMode() {
     // サーバーの拡張") -- ContextRetriever itself doesn't need these
     // three, only SymbolIndex/IncludeGraph.
     CallGraph call_graph;
-    if (const auto graph_result = call_graph.Build(project_root); !graph_result) {
+    if (const auto graph_result = call_graph.Build(project_root, extra_ignore_patterns); !graph_result) {
         AISTUDIO_LOG_WARN("Core.MCP", "CallGraph build failed: " + graph_result.Err().message);
     }
     InheritanceGraph inheritance_graph;
-    if (const auto graph_result = inheritance_graph.Build(project_root); !graph_result) {
+    if (const auto graph_result = inheritance_graph.Build(project_root, extra_ignore_patterns); !graph_result) {
         AISTUDIO_LOG_WARN("Core.MCP", "InheritanceGraph build failed: " + graph_result.Err().message);
     }
     ReferenceGraph reference_graph;
-    if (const auto graph_result = reference_graph.Build(project_root); !graph_result) {
+    if (const auto graph_result = reference_graph.Build(project_root, extra_ignore_patterns); !graph_result) {
         AISTUDIO_LOG_WARN("Core.MCP", "ReferenceGraph build failed: " + graph_result.Err().message);
     }
     // Built for the ast_tree MCP tool (docs/ROADMAP.md Next Priority "MCP
@@ -264,7 +277,7 @@ int RunMcpMode() {
     // left unexposed even though ApiServer's GET /api/ast has had it since
     // Phase 3.
     AstIndex ast_index;
-    if (const auto ast_result = ast_index.Build(project_root); !ast_result) {
+    if (const auto ast_result = ast_index.Build(project_root, extra_ignore_patterns); !ast_result) {
         AISTUDIO_LOG_WARN("Core.MCP", "AstIndex build failed: " + ast_result.Err().message);
     }
     const ImpactAnalyzer impact_analyzer(include_graph, call_graph, symbol_index);
@@ -330,7 +343,7 @@ int RunMcpMode() {
     // identical FileWatcher block below as closely as possible, down to
     // the same "FileChanged" subscription shape and the same generic
     // apply() lambda covering all six indexes.
-    FileWatcher file_watcher(project_root, FileScanner{});
+    FileWatcher file_watcher(project_root, FileScanner(FileScanner::MakeOptions(extra_ignore_patterns)));
     const auto file_watcher_subscription_id = EventBus::Instance().Subscribe(
         "FileChanged",
         [&symbol_index, &include_graph, &call_graph, &inheritance_graph, &reference_graph, &ast_index,
@@ -447,6 +460,7 @@ int RunLspMode() {
         AISTUDIO_LOG_WARN("Core.LSP", "no config file found, using defaults: " + load_result.Err().message);
     }
     const auto project_root = config.GetOr("project.root", ".");
+    const auto extra_ignore_patterns = LoadExtraIgnorePatterns(config);
     // Opt-in only (docs/ROADMAP.md's Rename entry, resolved by the user's
     // explicit decision to mirror RunMcpMode()'s enable_git_write_commands
     // exactly): textDocument/rename / textDocument/prepareRename stay
@@ -465,7 +479,7 @@ int RunLspMode() {
     const Sandbox sandbox(project_root);
 
     SymbolIndex symbol_index;
-    if (const auto index_result = symbol_index.Build(project_root); !index_result) {
+    if (const auto index_result = symbol_index.Build(project_root, extra_ignore_patterns); !index_result) {
         AISTUDIO_LOG_WARN("Core.LSP", "SymbolIndex build failed: " + index_result.Err().message);
     }
 
@@ -480,7 +494,7 @@ int RunLspMode() {
     // Build()-then-FileWatcher-keeps-it-fresh shape RunMcpMode() and the
     // default HTTP mode already use for their own indexes.
     IncludeGraph include_graph;
-    if (const auto graph_result = include_graph.Build(project_root); !graph_result) {
+    if (const auto graph_result = include_graph.Build(project_root, extra_ignore_patterns); !graph_result) {
         AISTUDIO_LOG_WARN("Core.LSP", "IncludeGraph build failed: " + graph_result.Err().message);
     }
 
@@ -498,7 +512,7 @@ int RunLspMode() {
     // this, editing an open document to remove the very `#include` line
     // that triggered a warning never cleared it, because include_graph
     // itself stayed frozen at process-startup content.
-    FileWatcher file_watcher(project_root, FileScanner{});
+    FileWatcher file_watcher(project_root, FileScanner(FileScanner::MakeOptions(extra_ignore_patterns)));
     const auto file_watcher_subscription_id = EventBus::Instance().Subscribe(
         "FileChanged", [&symbol_index, &include_graph, &project_root](const std::any& payload) {
             const auto* change = std::any_cast<FileChangeEvent>(&payload);
@@ -792,6 +806,7 @@ int main(int argc, char** argv) {
     }
 
     const auto project_root = config.GetOr("project.root", ".");
+    const auto extra_ignore_patterns = LoadExtraIgnorePatterns(config);
 
     // Security "Sandbox" (docs/MASTER_SPEC.md #73): demonstrate that a
     // path inside project_root is allowed, while a path escaping it (or
@@ -804,7 +819,7 @@ int main(int argc, char** argv) {
                                              ", '.git/config' allowed = " +
                                              std::to_string(sandbox.IsAllowed(".git/config")));
 
-    FileScanner scanner;
+    FileScanner scanner(FileScanner::MakeOptions(extra_ignore_patterns));
     const auto scan_result = scanner.Scan(project_root);
     if (scan_result) {
         AISTUDIO_LOG_INFO("Core.Bootstrap", "FileScanner: found " + std::to_string(scan_result.Value().size()) +
@@ -873,7 +888,7 @@ int main(int argc, char** argv) {
     }
 
     SymbolIndex symbol_index;
-    if (const auto index_result = symbol_index.Build(project_root); !index_result) {
+    if (const auto index_result = symbol_index.Build(project_root, extra_ignore_patterns); !index_result) {
         AISTUDIO_LOG_WARN("Core.Bootstrap", "SymbolIndex build failed: " + index_result.Err().message);
     } else {
         AISTUDIO_LOG_INFO("Core.Bootstrap",
@@ -885,7 +900,7 @@ int main(int argc, char** argv) {
     }
 
     IncludeGraph include_graph;
-    if (const auto graph_result = include_graph.Build(project_root); !graph_result) {
+    if (const auto graph_result = include_graph.Build(project_root, extra_ignore_patterns); !graph_result) {
         AISTUDIO_LOG_WARN("Core.Bootstrap", "IncludeGraph build failed: " + graph_result.Err().message);
     } else {
         const auto include_edges = include_graph.AllEdges();
@@ -910,7 +925,7 @@ int main(int argc, char** argv) {
     }
 
     CallGraph call_graph;
-    if (const auto call_graph_result = call_graph.Build(project_root); !call_graph_result) {
+    if (const auto call_graph_result = call_graph.Build(project_root, extra_ignore_patterns); !call_graph_result) {
         AISTUDIO_LOG_WARN("Core.Bootstrap", "CallGraph build failed: " + call_graph_result.Err().message);
     } else {
         AISTUDIO_LOG_INFO("Core.Bootstrap",
@@ -933,7 +948,7 @@ int main(int argc, char** argv) {
     }
 
     InheritanceGraph inheritance_graph;
-    if (const auto inheritance_result = inheritance_graph.Build(project_root); !inheritance_result) {
+    if (const auto inheritance_result = inheritance_graph.Build(project_root, extra_ignore_patterns); !inheritance_result) {
         AISTUDIO_LOG_WARN("Core.Bootstrap", "InheritanceGraph build failed: " + inheritance_result.Err().message);
     } else {
         AISTUDIO_LOG_INFO("Core.Bootstrap", "InheritanceGraph: indexed " + std::to_string(inheritance_graph.Size()) +
@@ -946,7 +961,7 @@ int main(int argc, char** argv) {
     }
 
     ReferenceGraph reference_graph;
-    if (const auto reference_result = reference_graph.Build(project_root); !reference_result) {
+    if (const auto reference_result = reference_graph.Build(project_root, extra_ignore_patterns); !reference_result) {
         AISTUDIO_LOG_WARN("Core.Bootstrap", "ReferenceGraph build failed: " + reference_result.Err().message);
     } else {
         AISTUDIO_LOG_INFO("Core.Bootstrap",
@@ -958,7 +973,7 @@ int main(int argc, char** argv) {
     }
 
     AstIndex ast_index;
-    if (const auto ast_result = ast_index.Build(project_root); !ast_result) {
+    if (const auto ast_result = ast_index.Build(project_root, extra_ignore_patterns); !ast_result) {
         AISTUDIO_LOG_WARN("Core.Bootstrap", "AstIndex build failed: " + ast_result.Err().message);
     } else {
         AISTUDIO_LOG_INFO("Core.Bootstrap", "AstIndex: indexed " + std::to_string(ast_index.Size()) + " file(s)");
@@ -1146,7 +1161,7 @@ int main(int argc, char** argv) {
     // "File Intelligence" > "Incremental Reload" / "File Watcher", now
     // that all six have their own UpdateFile()/RemoveFile() for it to
     // drive.
-    FileWatcher file_watcher(project_root, FileScanner{});
+    FileWatcher file_watcher(project_root, FileScanner(FileScanner::MakeOptions(extra_ignore_patterns)));
     const auto file_watcher_subscription_id = EventBus::Instance().Subscribe(
         "FileChanged",
         [&symbol_index, &include_graph, &call_graph, &inheritance_graph, &reference_graph, &ast_index,

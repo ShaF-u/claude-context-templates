@@ -36,7 +36,8 @@ namespace aistudio::core {
 // same reasoning as SymbolIndex (docs/ROADMAP.md "File Watcher").
 class CallGraph {
 public:
-    Result<void> Build(const std::string& root);
+    // `extra_ignore_patterns`: see SymbolIndex::Build's identical parameter.
+    Result<void> Build(const std::string& root, const std::vector<std::string>& extra_ignore_patterns = {});
 
     // Re-extracts just `path`'s own call edges and replaces them in this
     // index, without re-scanning the rest of the project --

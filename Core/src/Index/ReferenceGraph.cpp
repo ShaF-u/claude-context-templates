@@ -22,8 +22,8 @@ bool ReferenceGraph::IsSourceFile(const std::string& path) {
                         [&](const char* candidate) { return extension == candidate; });
 }
 
-Result<void> ReferenceGraph::Build(const std::string& root) {
-    const FileScanner scanner;
+Result<void> ReferenceGraph::Build(const std::string& root, const std::vector<std::string>& extra_ignore_patterns) {
+    const FileScanner scanner(FileScanner::MakeOptions(extra_ignore_patterns));
     const auto scan_result = scanner.Scan(root);
     if (!scan_result) {
         return Result<void>::Fail(scan_result.Err());

@@ -10,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 namespace aistudio::core {
 
@@ -36,7 +37,8 @@ namespace aistudio::core {
 // same reasoning as SymbolIndex (docs/ROADMAP.md "File Watcher").
 class AstIndex {
 public:
-    Result<void> Build(const std::string& root);
+    // `extra_ignore_patterns`: see SymbolIndex::Build's identical parameter.
+    Result<void> Build(const std::string& root, const std::vector<std::string>& extra_ignore_patterns = {});
 
     // Re-extracts just `path`'s own AST and upserts it into this index,
     // without re-scanning the rest of the project -- docs/ROADMAP.md

@@ -27,6 +27,15 @@ public:
 
     [[nodiscard]] static std::vector<std::string> DefaultIgnorePatterns();
 
+    // DefaultIgnorePatterns() plus `extra_ignore_patterns` appended (e.g.
+    // from a host project's own aistudio.config `scan.extra_ignore_patterns`
+    // -- see main.cpp) -- the shape every Index::Build(root,
+    // extra_ignore_patterns) uses to construct its own internal FileScanner,
+    // so a host project can exclude paths (a vendored tool checked out
+    // under a project-specific folder name, say) without that name being
+    // hardcoded into this template's own generic defaults above.
+    [[nodiscard]] static Options MakeOptions(const std::vector<std::string>& extra_ignore_patterns);
+
     explicit FileScanner(Options options = {}) : options_(std::move(options)) {}
 
     // `root` is walked recursively; returned paths are relative to root

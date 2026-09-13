@@ -39,9 +39,40 @@ std::vector<std::string> FileScanner::DefaultIgnorePatterns() {
     return {
         ".git",         "node_modules",  "build", "dist",   ".vs",
         ".vscode",      ".ts-build",     "__pycache__",
+        // MSVC per-project intermediate/output directories -- without
+        // these, FileScanner recurses into every project's Debug/Release
+        // intermediate tree and reads+hashes whatever isn't caught by the
+        // extension patterns below
+        // (.tlog/.idb/.ilk/.ipch files, some tens of MB each), which is
+        // what made a full-repo Scan()/Index::Build() take long enough to
+        // blow past an MCP client's connection timeout in a solution with
+        // several C++ projects.
+        "x64",          "Win32",         "packages",
+        // Vendored third-party source (e.g. Engine/external's bundled EnTT/
+        // ImGui/SpdLog): not this project's own code, and re-tree-sitter-
+        // parsing a multi-MB single-header library like entt.hpp once per
+        // index (SymbolIndex/IncludeGraph/CallGraph/InheritanceGraph/
+        // ReferenceGraph/AstIndex all call FileScanner independently) was
+        // the other big contributor to Index::Build() blowing past an MCP
+        // client's connection timeout.
+        "external",     "vendor",        "third_party",
         "*.obj",        "*.pdb",         "*.exe", "*.lib",  "*.exp",
         "*.db",         "*.sqlite3",     "*.tsbuildinfo",
+        "*.tlog",       "*.idb",         "*.ilk", "*.ipch", "*.iobj",
+        "*.ipdb",       "*.res",         "*.log",
+        // Binary game assets (App/Assets, Engine/Assets): large and not
+        // meaningfully parseable/searchable as text, so scanning/hashing
+        // them full-content only adds cost with no benefit to the tools
+        // this indexes for (symbol_search/context_retrieve/etc.).
+        "*.fbx",        "*.mdl",         "*.dds", "*.dll",
     };
+}
+
+FileScanner::Options FileScanner::MakeOptions(const std::vector<std::string>& extra_ignore_patterns) {
+    Options options;
+    options.ignore_patterns.insert(options.ignore_patterns.end(), extra_ignore_patterns.begin(),
+                                    extra_ignore_patterns.end());
+    return options;
 }
 
 bool FileScanner::IsIgnored(const std::string& relative_path) const {
