@@ -31,6 +31,32 @@ bool IsValidUtf8(std::string_view text) {
     }
 }
 
+std::optional<std::string> Cp932ToUtf8(std::string_view text) {
+#if defined(_WIN32)
+    if (text.empty()) {
+        return std::string();
+    }
+    // MB_ERR_INVALID_CHARS is what makes this a safe fallback rather than
+    // a silent mangling of genuinely binary content: without it, Win32
+    // maps any byte with no CP932 interpretation to U+FFFD instead of
+    // failing, which would make an image or .jar's raw bytes "decode"
+    // into garbage UTF-8 text and get sent to the caller as if it were
+    // real file content.
+    const int wide_length =
+        ::MultiByteToWideChar(932, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    if (wide_length <= 0) {
+        return std::nullopt;
+    }
+    std::wstring wide(static_cast<std::size_t>(wide_length), L'\0');
+    ::MultiByteToWideChar(932, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), wide.data(),
+                          wide_length);
+    return WideToUtf8(wide);
+#else
+    (void)text;
+    return std::nullopt;
+#endif
+}
+
 std::size_t Utf8SafeTruncationLength(std::string_view text, std::size_t max_bytes) {
     if (max_bytes >= text.size()) {
         return text.size();

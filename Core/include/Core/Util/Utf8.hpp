@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -16,6 +17,23 @@ namespace aistudio::core {
 // distinction) into a hard failure of the whole response, not just that
 // file. Callers use this to skip/reject such content instead.
 [[nodiscard]] bool IsValidUtf8(std::string_view text);
+
+// Best-effort Shift-JIS (CP932) -> UTF-8 fallback for bytes that already
+// failed IsValidUtf8. Not every project this connects to saves its
+// source as UTF-8 -- the GameEngine host repo this was built for
+// documents in its own CLAUDE.md that most of its Engine/Source is
+// CP932, not UTF-8 (MSVC/Shift-JIS being the long-standing default for a
+// Japanese-locale Visual Studio project), which otherwise makes
+// context_fetch (McpServer.cpp) reject those files outright as "not
+// valid UTF-8 text (binary file?)" even though they're perfectly
+// readable text. nullopt when `text` doesn't decode cleanly as CP932
+// either (MultiByteToWideChar with MB_ERR_INVALID_CHARS rejects any byte
+// sequence with no valid CP932 interpretation) -- callers should keep
+// treating that as genuinely binary content, exactly as before this
+// existed. Windows-only, mirroring Utf8ToWide/WideToUtf8 below; always
+// returns nullopt on non-Windows (nothing in this codebase's non-Windows
+// path needs it yet).
+[[nodiscard]] std::optional<std::string> Cp932ToUtf8(std::string_view text);
 
 // Largest length <= `max_bytes` that doesn't split a multi-byte UTF-8
 // character -- naive byte-count truncation (`text.resize(max_bytes)`) can

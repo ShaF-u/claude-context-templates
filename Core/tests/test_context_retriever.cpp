@@ -306,6 +306,70 @@ AISTUDIO_TEST(ContextRetriever_Retrieve_NoFirewall_AllowsEverything) {
     AISTUDIO_EXPECT(!retriever.Retrieve("PlayerAttack").empty());
 }
 
+AISTUDIO_TEST(ContextRetriever_Retrieve_MultiWordIntent_MatchesSymbolByEmbeddedIdentifier) {
+    // Reproduces the real-world usage shape (docs example: "player attack
+    // logic") that a literal whole-intent substring match against a
+    // short identifier essentially never satisfies.
+    TempProject project;
+    project.WriteFile("Player.hpp", "class PlayerAttack {\n};\n");
+
+    SymbolIndex symbol_index;
+    symbol_index.Build(project.RootString());
+
+    ContextRetriever::Options options;
+    options.symbol_index = &symbol_index;
+    const ContextRetriever retriever(options);
+
+    const auto items = retriever.Retrieve("show me the PlayerAttack combat logic");
+    AISTUDIO_EXPECT(HasSource(items, ContextSourceKind::Symbol));
+    AISTUDIO_EXPECT(HasId(items, "Player.hpp:PlayerAttack"));
+}
+
+AISTUDIO_TEST(ContextRetriever_Retrieve_MultiWordIntent_MatchesFileByEmbeddedIdentifier) {
+    TempProject project;
+    project.WriteFile("CsvParser.cpp", "void Foo() {\n}\n");
+
+    ContextRetriever::Options options;
+    options.project_root = project.RootString();
+    const ContextRetriever retriever(options);
+
+    const auto items = retriever.Retrieve("how does the CsvParser file work");
+    AISTUDIO_EXPECT(HasSource(items, ContextSourceKind::File));
+    AISTUDIO_EXPECT(HasId(items, "CsvParser.cpp"));
+}
+
+AISTUDIO_TEST(ContextRetriever_Retrieve_MultiWordIntent_FallsBackToKeywordMatch) {
+    TempProject project;
+    project.WriteFile("a.cpp", "// implements combat strategy logic\nvoid Foo() {}\n");
+
+    ContextRetriever::Options options;
+    options.project_root = project.RootString();
+    const ContextRetriever retriever(options);
+
+    const auto items = retriever.Retrieve("what is the combat strategy here");
+    AISTUDIO_EXPECT(HasSource(items, ContextSourceKind::Custom));
+}
+
+AISTUDIO_TEST(ContextRetriever_Retrieve_IntentWithNoSpaces_StillMatchesEmbeddedIdentifier) {
+    // A sentence with no ASCII spaces at all (e.g. Japanese prose with an
+    // English identifier stitched in, no delimiter between them) should
+    // still tokenize the embedded identifier out -- every non-word byte,
+    // including a multi-byte UTF-8 continuation byte, acts as a
+    // delimiter (see TokenizeIntent's own comment).
+    TempProject project;
+    project.WriteFile("Player.hpp", "class PlayerAttack {\n};\n");
+
+    SymbolIndex symbol_index;
+    symbol_index.Build(project.RootString());
+
+    ContextRetriever::Options options;
+    options.symbol_index = &symbol_index;
+    const ContextRetriever retriever(options);
+
+    const auto items = retriever.Retrieve("これはPlayerAttackの説明です");
+    AISTUDIO_EXPECT(HasId(items, "Player.hpp:PlayerAttack"));
+}
+
 AISTUDIO_TEST(ContextRetriever_Retrieve_NoMatches_ReturnsEmpty) {
     TempProject project;
     project.WriteFile("a.hpp", "class Foo {\n};\n");

@@ -165,6 +165,13 @@ std::optional<std::filesystem::path> ResolveProjectFile(const std::string& proje
     return target;
 }
 
+// Falls back to CP932 (Shift-JIS) decoding when the raw bytes aren't
+// valid UTF-8 -- see Cp932ToUtf8's own doc comment for why (this
+// project's own host repo, GameEngine, saves most of Engine/Source that
+// way). Every context_fetch call site below checks IsValidUtf8(*content)
+// itself right after calling this, so a file that's neither valid UTF-8
+// nor valid CP932 (genuinely binary) still reaches that check unchanged
+// and gets rejected exactly as before this fallback existed.
 std::optional<std::string> ReadFileContent(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
     if (!file.is_open()) {
@@ -172,7 +179,13 @@ std::optional<std::string> ReadFileContent(const std::filesystem::path& path) {
     }
     std::ostringstream buffer;
     buffer << file.rdbuf();
-    return buffer.str();
+    std::string content = buffer.str();
+    if (!IsValidUtf8(content)) {
+        if (auto converted = Cp932ToUtf8(content); converted.has_value()) {
+            return converted;
+        }
+    }
+    return content;
 }
 
 // docs/ROADMAP.md CE-5's "context_fetch can't recover Symbol/Dependency/

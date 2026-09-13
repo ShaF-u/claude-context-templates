@@ -12,6 +12,7 @@
 #include <cctype>
 #include <filesystem>
 #include <optional>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace aistudio::core {
@@ -23,6 +24,47 @@ std::string ToLower(const std::string& text) {
     std::transform(result.begin(), result.end(), result.begin(),
                     [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return result;
+}
+
+// Splits a free-text intent into the identifier-like words Symbol/File/
+// Keyword retrieval below actually match against. Without this, each of
+// those three treats the ENTIRE intent as one literal substring to look
+// for (SymbolSearch::ScoreSymbol, FilePathScore, KeywordSearch's
+// per-line search) -- a condition a real "player attack logic"-shaped
+// intent (this class's own documented example, see the class comment)
+// essentially never satisfies, since no symbol/file/line is named
+// literally "player attack logic". Tokenizing lets each word be tried
+// against every source independently, matching this class's own stated
+// intent of accepting free text rather than an exact name.
+//
+// A run of non-word bytes (spaces, punctuation, or a multi-byte UTF-8
+// character's continuation bytes -- all >= 0x80, so none of them count
+// as isalnum in the "C" locale) is a delimiter. That incidentally pulls
+// an embedded identifier like "SpriteRenderSystem" out of an all-
+// Japanese sentence with no spaces at all, which matters in a codebase
+// (see this project's own CLAUDE.md) whose comments mix English
+// identifiers into Japanese prose with no separator between them.
+// Tokens shorter than 2 characters are dropped -- a single letter/digit
+// matches too broadly to be a useful signal in any of the three sources
+// below.
+std::vector<std::string> TokenizeIntent(const std::string& intent) {
+    std::vector<std::string> tokens;
+    std::string current;
+    const auto flush = [&]() {
+        if (current.size() >= 2) {
+            tokens.push_back(current);
+        }
+        current.clear();
+    };
+    for (const unsigned char c : intent) {
+        if (std::isalnum(c) != 0 || c == '_') {
+            current.push_back(static_cast<char>(c));
+        } else {
+            flush();
+        }
+    }
+    flush();
+    return tokens;
 }
 
 // Symbol match tiers land in 35-85: SymbolMatch::score's own range is
@@ -149,11 +191,41 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
     // file read regardless of how many items end up scored below.
     const ActiveFileBias bias(CurrentActiveDocumentPath(), options_.include_graph);
 
+    // Tokenized once, shared by Symbol/File/Keyword retrieval below (see
+    // TokenizeIntent's own comment) -- Backend Context Provider retrieval
+    // further down deliberately keeps receiving the raw `intent` string,
+    // since a Backend is free to interpret free text however it likes.
+    const auto intent_tokens = TokenizeIntent(intent);
+
     // Symbol retrieval: the strongest signal, so it runs first and
     // seeds `matched_files` for the coarser sources below to defer to.
+    // Each token is searched independently and results are merged by
+    // symbol identity, keeping the best score any single token achieved
+    // -- the same per-source "best single match wins" heuristic File
+    // retrieval below already uses.
     if (options_.symbol_index != nullptr) {
         const SymbolSearch search;
-        for (const auto& match : search.Search(*options_.symbol_index, intent, options_.max_symbol_matches)) {
+        std::unordered_map<std::string, SymbolMatch> best_by_symbol;
+        for (const auto& token : intent_tokens) {
+            for (auto& match : search.Search(*options_.symbol_index, token, options_.max_symbol_matches)) {
+                const std::string key = match.symbol.file_path + '\x1f' + match.symbol.name;
+                auto [it, inserted] = best_by_symbol.try_emplace(key, match);
+                if (!inserted && match.score > it->second.score) {
+                    it->second = match;
+                }
+            }
+        }
+        std::vector<SymbolMatch> merged;
+        merged.reserve(best_by_symbol.size());
+        for (auto& [key, match] : best_by_symbol) {
+            merged.push_back(std::move(match));
+        }
+        std::stable_sort(merged.begin(), merged.end(),
+                          [](const SymbolMatch& a, const SymbolMatch& b) { return a.score > b.score; });
+        if (merged.size() > options_.max_symbol_matches) {
+            merged.resize(options_.max_symbol_matches);
+        }
+        for (const auto& match : merged) {
             if (!passes_firewall(match.symbol.file_path)) {
                 continue;
             }
@@ -186,16 +258,26 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
         const auto scan_result = scanner.Scan(options_.project_root, &scan_cache);
 
         // File retrieval: path/filename substring match, skipping files
-        // a symbol match already covers more precisely.
+        // a symbol match already covers more precisely. Each token is
+        // tried independently against every file path, keeping the best
+        // score any single token achieved (see TokenizeIntent's comment).
         if (scan_result) {
-            const std::string lower_intent = ToLower(intent);
+            std::vector<std::string> lower_tokens;
+            lower_tokens.reserve(intent_tokens.size());
+            for (const auto& token : intent_tokens) {
+                lower_tokens.push_back(ToLower(token));
+            }
             std::vector<std::pair<int, const FileMetadata*>> scored;
             for (const auto& metadata : scan_result.Value()) {
                 if (matched_files.count(metadata.path) != 0 || !passes_firewall(metadata.path)) {
                     continue;
                 }
-                if (const int score = FilePathScore(metadata.path, lower_intent); score > 0) {
-                    scored.emplace_back(bias.Apply(score, metadata.path), &metadata);
+                int best_score = 0;
+                for (const auto& lower_token : lower_tokens) {
+                    best_score = std::max(best_score, FilePathScore(metadata.path, lower_token));
+                }
+                if (best_score > 0) {
+                    scored.emplace_back(bias.Apply(best_score, metadata.path), &metadata);
                 }
             }
             std::stable_sort(scored.begin(), scored.end(),
@@ -210,26 +292,50 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
 
         // Keyword retrieval: the weakest, broadest signal — a fallback
         // for relevant text that symbol/file name matching missed
-        // (comments, string literals, prose in non-source files).
+        // (comments, string literals, prose in non-source files). Each
+        // token is searched independently and results are merged by
+        // (file, line), keeping the best score any single token achieved
+        // (see TokenizeIntent's comment).
         if (scan_result) {
             const KeywordSearch keyword_search;
-            if (const auto keyword_result = keyword_search.Search(scan_result.Value(), options_.project_root, intent,
+            std::unordered_map<std::string, KeywordMatch> best_by_line;
+            for (const auto& token : intent_tokens) {
+                const auto keyword_result = keyword_search.Search(scan_result.Value(), options_.project_root, token,
                                                                     options_.max_keyword_matches, &scan_cache);
-                keyword_result) {
-                for (const auto& match : keyword_result.Value()) {
-                    if (matched_files.count(match.file_path) != 0 || !passes_firewall(match.file_path)) {
-                        continue;
-                    }
-                    ContextItem item;
-                    item.id = "keyword:" + match.file_path + ":" + std::to_string(match.line);
-                    item.source = ContextSourceKind::Custom;
-                    item.compression = CompressionLevel::Reference;
-                    item.priority = bias.Apply(KeywordPriority(match.score), match.file_path);
-                    item.content = match.file_path + ":" + std::to_string(match.line) + ": " + match.text;
-                    item.estimated_tokens = EstimateTokens(item.content);
-                    item.depends_on = {match.file_path};
-                    add_item(std::move(item));
+                if (!keyword_result) {
+                    continue;
                 }
+                for (auto& match : keyword_result.Value()) {
+                    const std::string key = match.file_path + '\x1f' + std::to_string(match.line);
+                    auto [it, inserted] = best_by_line.try_emplace(key, match);
+                    if (!inserted && match.score > it->second.score) {
+                        it->second = match;
+                    }
+                }
+            }
+            std::vector<KeywordMatch> merged;
+            merged.reserve(best_by_line.size());
+            for (auto& [key, match] : best_by_line) {
+                merged.push_back(std::move(match));
+            }
+            std::stable_sort(merged.begin(), merged.end(),
+                              [](const KeywordMatch& a, const KeywordMatch& b) { return a.score > b.score; });
+            if (merged.size() > options_.max_keyword_matches) {
+                merged.resize(options_.max_keyword_matches);
+            }
+            for (const auto& match : merged) {
+                if (matched_files.count(match.file_path) != 0 || !passes_firewall(match.file_path)) {
+                    continue;
+                }
+                ContextItem item;
+                item.id = "keyword:" + match.file_path + ":" + std::to_string(match.line);
+                item.source = ContextSourceKind::Custom;
+                item.compression = CompressionLevel::Reference;
+                item.priority = bias.Apply(KeywordPriority(match.score), match.file_path);
+                item.content = match.file_path + ":" + std::to_string(match.line) + ": " + match.text;
+                item.estimated_tokens = EstimateTokens(item.content);
+                item.depends_on = {match.file_path};
+                add_item(std::move(item));
             }
         }
     }
