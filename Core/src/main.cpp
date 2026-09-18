@@ -297,7 +297,9 @@ int RunMcpMode() {
         .firewall = &sandbox,
     });
 
-    const ContextRetriever context_retriever(ContextRetriever::Options{
+    // Non-const (unlike the indexes above) only so the FileWatcher
+    // subscription below can call InvalidateScan() on it.
+    ContextRetriever context_retriever(ContextRetriever::Options{
         .symbol_index = &symbol_index,
         .include_graph = &include_graph,
         .project_root = project_root,
@@ -311,6 +313,9 @@ int RunMcpMode() {
         // is running (EditorStateStore::Read() returns nullopt) -- exact
         // pre-existing behavior.
         .editor_state_store = &editor_state_store,
+        // Safe here, and only here, because the FileWatcher below drives
+        // InvalidateScan() -- see Options::cache_scan.
+        .cache_scan = true,
     });
 
     // Context Cache (docs/ROADMAP.md Phase 2 "Context Cache"): memoizes
@@ -347,7 +352,7 @@ int RunMcpMode() {
     const auto file_watcher_subscription_id = EventBus::Instance().Subscribe(
         "FileChanged",
         [&symbol_index, &include_graph, &call_graph, &inheritance_graph, &reference_graph, &ast_index,
-         &context_cache, &project_root](const std::any& payload) {
+         &context_cache, &context_retriever, &project_root](const std::any& payload) {
             const auto* change = std::any_cast<FileChangeEvent>(&payload);
             if (change == nullptr) {
                 return;
@@ -379,6 +384,9 @@ int RunMcpMode() {
             // call regardless of intent -- a per-file dependency list
             // would be false precision here.
             context_cache.InvalidateAll();
+            // Same whole-project granularity for the same reason -- see
+            // ContextRetriever::Options::cache_scan.
+            context_retriever.InvalidateScan();
         });
     file_watcher.Start();
     AISTUDIO_LOG_INFO("Core.MCP", "FileWatcher: watching '" + project_root + "' for changes");
@@ -1035,7 +1043,9 @@ int main(int argc, char** argv) {
     // as its Context Firewall (docs/MASTER_SPEC.md #21) — a match whose
     // file the Sandbox would deny (e.g. under .git, or secret-like) is
     // never turned into a ContextItem here either.
-    const ContextRetriever context_retriever(ContextRetriever::Options{
+    // Non-const only so the FileWatcher subscription further down can
+    // call InvalidateScan() on it -- same as RunMcpMode()'s own.
+    ContextRetriever context_retriever(ContextRetriever::Options{
         .symbol_index = &symbol_index,
         .include_graph = &include_graph,
         .project_root = project_root,
@@ -1048,6 +1058,7 @@ int main(int argc, char** argv) {
         // this doesn't change.
         .backend_registry = &registry,
         .editor_state_store = &editor_state_store,
+        .cache_scan = true,
     });
 
     // Active File Bias real-machine verification (docs/DEVELOPMENT_PROTOCOL.md
@@ -1165,7 +1176,7 @@ int main(int argc, char** argv) {
     const auto file_watcher_subscription_id = EventBus::Instance().Subscribe(
         "FileChanged",
         [&symbol_index, &include_graph, &call_graph, &inheritance_graph, &reference_graph, &ast_index,
-         &context_cache, &project_root](const std::any& payload) {
+         &context_cache, &context_retriever, &project_root](const std::any& payload) {
             const auto* change = std::any_cast<FileChangeEvent>(&payload);
             if (change == nullptr) {
                 return;
@@ -1196,6 +1207,7 @@ int main(int argc, char** argv) {
             // call regardless of intent -- a per-file dependency list
             // would be false precision here.
             context_cache.InvalidateAll();
+            context_retriever.InvalidateScan();
         });
     file_watcher.Start();
     AISTUDIO_LOG_INFO("Core.Bootstrap", "FileWatcher: watching '" + project_root + "' for changes");

@@ -207,7 +207,8 @@ AISTUDIO_TEST(ContextRetriever_Retrieve_RespectsMaxSymbolMatches) {
     options.max_symbol_matches = 1;
     const ContextRetriever retriever(options);
 
-    const auto items = retriever.Retrieve("Attack");
+    ContextRetriever::RetrievalTruncation truncation;
+    const auto items = retriever.Retrieve("Attack", &truncation);
     std::size_t symbol_count = 0;
     for (const auto& item : items) {
         if (item.source == ContextSourceKind::Symbol) {
@@ -215,6 +216,108 @@ AISTUDIO_TEST(ContextRetriever_Retrieve_RespectsMaxSymbolMatches) {
         }
     }
     AISTUDIO_EXPECT(symbol_count == 1);
+    AISTUDIO_EXPECT(truncation.symbol);
+    AISTUDIO_EXPECT(!truncation.file);
+    AISTUDIO_EXPECT(!truncation.keyword);
+}
+
+AISTUDIO_TEST(ContextRetriever_Retrieve_TruncationDefaultsFalseWhenUnderCap) {
+    TempProject project;
+    project.WriteFile("a.hpp", "class Attack1 {\n};\n");
+
+    SymbolIndex symbol_index;
+    symbol_index.Build(project.RootString());
+
+    ContextRetriever::Options options;
+    options.symbol_index = &symbol_index;
+    const ContextRetriever retriever(options);
+
+    ContextRetriever::RetrievalTruncation truncation;
+    (void)retriever.Retrieve("Attack", &truncation);
+    AISTUDIO_EXPECT(!truncation.Any());
+}
+
+AISTUDIO_TEST(ContextRetriever_Retrieve_RespectsMaxFileMatches) {
+    TempProject project;
+    project.WriteFile("Attack1.cpp", "void Foo() {}\n");
+    project.WriteFile("Attack2.cpp", "void Foo() {}\n");
+    project.WriteFile("Attack3.cpp", "void Foo() {}\n");
+
+    ContextRetriever::Options options;
+    options.project_root = project.RootString();
+    options.max_file_matches = 1;
+    const ContextRetriever retriever(options);
+
+    ContextRetriever::RetrievalTruncation truncation;
+    (void)retriever.Retrieve("Attack", &truncation);
+    AISTUDIO_EXPECT(truncation.file);
+    AISTUDIO_EXPECT(!truncation.symbol);
+}
+
+AISTUDIO_TEST(ContextRetriever_Retrieve_CacheScanOff_SeesFilesWrittenBetweenCalls) {
+    TempProject project;
+    project.WriteFile("First.cpp", "void Foo() {}\n");
+
+    ContextRetriever::Options options;
+    options.project_root = project.RootString();
+    const ContextRetriever retriever(options);
+
+    AISTUDIO_EXPECT(HasId(retriever.Retrieve("First"), "First.cpp"));
+    project.WriteFile("Second.cpp", "void Bar() {}\n");
+    AISTUDIO_EXPECT(HasId(retriever.Retrieve("Second"), "Second.cpp"));
+}
+
+AISTUDIO_TEST(ContextRetriever_Retrieve_CacheScanOn_ReusesScanUntilInvalidated) {
+    TempProject project;
+    project.WriteFile("First.cpp", "void Foo() {}\n");
+
+    ContextRetriever::Options options;
+    options.project_root = project.RootString();
+    options.cache_scan = true;
+    ContextRetriever retriever(options);
+
+    AISTUDIO_EXPECT(HasId(retriever.Retrieve("First"), "First.cpp"));
+
+    // Written after the first scan: invisible (both to File retrieval's
+    // path match and Keyword retrieval's content match) until the
+    // caller says the project changed.
+    project.WriteFile("Second.cpp", "// second_marker\nvoid Bar() {}\n");
+    AISTUDIO_EXPECT(!HasId(retriever.Retrieve("Second"), "Second.cpp"));
+    AISTUDIO_EXPECT(retriever.Retrieve("second_marker").empty());
+
+    retriever.InvalidateScan();
+    AISTUDIO_EXPECT(HasId(retriever.Retrieve("Second"), "Second.cpp"));
+    AISTUDIO_EXPECT(HasSource(retriever.Retrieve("second_marker"), ContextSourceKind::Custom));
+}
+
+AISTUDIO_TEST(ContextRetriever_InvalidateScan_WithCacheScanOff_IsNoOp) {
+    TempProject project;
+    project.WriteFile("First.cpp", "void Foo() {}\n");
+
+    ContextRetriever::Options options;
+    options.project_root = project.RootString();
+    ContextRetriever retriever(options);
+
+    retriever.InvalidateScan();
+    AISTUDIO_EXPECT(HasId(retriever.Retrieve("First"), "First.cpp"));
+}
+
+AISTUDIO_TEST(ContextRetriever_Retrieve_RespectsMaxKeywordMatches) {
+    TempProject project;
+    std::string content;
+    for (int i = 0; i < 3; ++i) {
+        content += "// strategy line\n";
+    }
+    project.WriteFile("a.cpp", content);
+
+    ContextRetriever::Options options;
+    options.project_root = project.RootString();
+    options.max_keyword_matches = 1;
+    const ContextRetriever retriever(options);
+
+    ContextRetriever::RetrievalTruncation truncation;
+    (void)retriever.Retrieve("strategy", &truncation);
+    AISTUDIO_EXPECT(truncation.keyword);
 }
 
 AISTUDIO_TEST(ContextRetriever_Retrieve_FirewallBlocksSymbolMatch) {

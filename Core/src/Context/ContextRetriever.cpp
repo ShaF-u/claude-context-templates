@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -18,6 +19,21 @@
 namespace aistudio::core {
 
 namespace {
+
+// SymbolSearch::Search/KeywordSearch::Search both already scan and sort
+// their FULL candidate set before truncating to `max_results` (see their
+// own implementations) -- the cap costs them nothing to lift. Passing
+// options_.max_*_matches per token here used to pre-truncate each token's
+// own results BEFORE the per-intent merge below, which (found via manual
+// testing, 2026-09-18) both silently dropped matches a truncation flag
+// could never observe (the final merged count could land under the cap
+// even though a real cut happened per token) and could rank a worse match
+// from one token above a better one from another (each token's pool was
+// already capped independently, so a genuinely higher-scoring match
+// beyond one token's own top-N never reached the merge step to compete).
+// kNoPerTokenLimit keeps each token's search uncapped; only the merged,
+// cross-token result is capped by options_.max_*_matches below.
+constexpr std::size_t kNoPerTokenLimit = std::numeric_limits<std::size_t>::max();
 
 std::string ToLower(const std::string& text) {
     std::string result = text;
@@ -80,19 +96,33 @@ int KeywordPriority(int score) {
     return std::clamp(score, 15, 35);
 }
 
+// A file path lower-cased once per Retrieve() (not once per token as
+// FilePathScore used to do internally -- the UTF-8 <-> std::filesystem
+// round trip for filename() is the expensive part, and it was being
+// repeated files x tokens times).
+struct LoweredPath {
+    std::string lower_path;
+    std::string lower_filename;
+};
+
+LoweredPath LowerPath(const std::string& path) {
+    return LoweredPath{
+        .lower_path = ToLower(path),
+        .lower_filename = ToLower(PathToUtf8(Utf8ToPath(path).filename())),
+    };
+}
+
 // 0 = no match. Exact filename match ranks above a filename substring,
 // which ranks above a match only in an earlier path segment (e.g. a
 // directory name).
-int FilePathScore(const std::string& path, const std::string& lower_intent) {
-    const std::string filename = PathToUtf8(Utf8ToPath(path).filename());
-    const std::string lower_filename = ToLower(filename);
-    if (lower_filename == lower_intent) {
+int FilePathScore(const LoweredPath& path, const std::string& lower_intent) {
+    if (path.lower_filename == lower_intent) {
         return 60;
     }
-    if (lower_filename.find(lower_intent) != std::string::npos) {
+    if (path.lower_filename.find(lower_intent) != std::string::npos) {
         return 45;
     }
-    if (ToLower(path).find(lower_intent) != std::string::npos) {
+    if (path.lower_path.find(lower_intent) != std::string::npos) {
         return 25;
     }
     return 0;
@@ -166,7 +196,43 @@ std::optional<std::string> ContextRetriever::CurrentActiveDocumentPath() const {
     return state->active_document_path;
 }
 
-std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) const {
+std::shared_ptr<ContextRetriever::ScanSnapshot> ContextRetriever::ScanProject() const {
+    std::uint64_t generation = 0;
+    if (options_.cache_scan) {
+        std::lock_guard lock(scan_mutex_);
+        if (scan_snapshot_ != nullptr) {
+            return scan_snapshot_;
+        }
+        generation = scan_generation_;
+    }
+
+    auto snapshot = std::make_shared<ScanSnapshot>();
+    const FileScanner scanner;
+    auto scan_result = scanner.Scan(options_.project_root, &snapshot->contents);
+    if (!scan_result) {
+        return nullptr;
+    }
+    snapshot->files = std::move(scan_result.Value());
+
+    if (options_.cache_scan) {
+        std::lock_guard lock(scan_mutex_);
+        // An InvalidateScan() that landed while this scan was on disk
+        // means the scan may already be stale -- serve it to this one
+        // caller (same as an uncached call would have) but don't cache it.
+        if (scan_generation_ == generation) {
+            scan_snapshot_ = snapshot;
+        }
+    }
+    return snapshot;
+}
+
+void ContextRetriever::InvalidateScan() {
+    std::lock_guard lock(scan_mutex_);
+    scan_snapshot_.reset();
+    ++scan_generation_;
+}
+
+std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, RetrievalTruncation* truncation) const {
     std::vector<ContextItem> items;
     if (intent.empty()) {
         return items;
@@ -207,7 +273,7 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
         const SymbolSearch search;
         std::unordered_map<std::string, SymbolMatch> best_by_symbol;
         for (const auto& token : intent_tokens) {
-            for (auto& match : search.Search(*options_.symbol_index, token, options_.max_symbol_matches)) {
+            for (auto& match : search.Search(*options_.symbol_index, token, kNoPerTokenLimit)) {
                 const std::string key = match.symbol.file_path + '\x1f' + match.symbol.name;
                 auto [it, inserted] = best_by_symbol.try_emplace(key, match);
                 if (!inserted && match.score > it->second.score) {
@@ -224,6 +290,9 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
                           [](const SymbolMatch& a, const SymbolMatch& b) { return a.score > b.score; });
         if (merged.size() > options_.max_symbol_matches) {
             merged.resize(options_.max_symbol_matches);
+            if (truncation != nullptr) {
+                truncation->symbol = true;
+            }
         }
         for (const auto& match : merged) {
             if (!passes_firewall(match.symbol.file_path)) {
@@ -248,33 +317,32 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
         }
     }
 
-    if (!options_.project_root.empty()) {
-        // One scan serves both File and Keyword retrieval below (they
-        // used to each scan the project independently). scan_cache is
-        // filled with each file's content as a side effect, so Keyword
-        // retrieval's own file reads come from memory instead of disk.
-        const FileScanner scanner;
-        FileCache scan_cache;
-        const auto scan_result = scanner.Scan(options_.project_root, &scan_cache);
-
+    // One scan serves both File and Keyword retrieval below (they used to
+    // each scan the project independently), and with Options::cache_scan
+    // it serves later Retrieve() calls too. snapshot->contents is filled
+    // with each file's content as a side effect of the scan, so Keyword
+    // retrieval's own file reads come from memory instead of disk.
+    const auto snapshot = options_.project_root.empty() ? nullptr : ScanProject();
+    if (snapshot != nullptr) {
         // File retrieval: path/filename substring match, skipping files
         // a symbol match already covers more precisely. Each token is
         // tried independently against every file path, keeping the best
         // score any single token achieved (see TokenizeIntent's comment).
-        if (scan_result) {
+        {
             std::vector<std::string> lower_tokens;
             lower_tokens.reserve(intent_tokens.size());
             for (const auto& token : intent_tokens) {
                 lower_tokens.push_back(ToLower(token));
             }
             std::vector<std::pair<int, const FileMetadata*>> scored;
-            for (const auto& metadata : scan_result.Value()) {
+            for (const auto& metadata : snapshot->files) {
                 if (matched_files.count(metadata.path) != 0 || !passes_firewall(metadata.path)) {
                     continue;
                 }
+                const LoweredPath lowered = LowerPath(metadata.path);
                 int best_score = 0;
                 for (const auto& lower_token : lower_tokens) {
-                    best_score = std::max(best_score, FilePathScore(metadata.path, lower_token));
+                    best_score = std::max(best_score, FilePathScore(lowered, lower_token));
                 }
                 if (best_score > 0) {
                     scored.emplace_back(bias.Apply(best_score, metadata.path), &metadata);
@@ -284,6 +352,9 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
                               [](const auto& a, const auto& b) { return a.first > b.first; });
             if (scored.size() > options_.max_file_matches) {
                 scored.resize(options_.max_file_matches);
+                if (truncation != nullptr) {
+                    truncation->file = true;
+                }
             }
             for (const auto& [score, metadata] : scored) {
                 add_item(MakeFileContextItem(*metadata, score));
@@ -292,24 +363,23 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
 
         // Keyword retrieval: the weakest, broadest signal — a fallback
         // for relevant text that symbol/file name matching missed
-        // (comments, string literals, prose in non-source files). Each
-        // token is searched independently and results are merged by
-        // (file, line), keeping the best score any single token achieved
-        // (see TokenizeIntent's comment).
-        if (scan_result) {
+        // (comments, string literals, prose in non-source files). Every
+        // token is searched in one pass over the files (KeywordSearch's
+        // multi-query overload) and results are merged by (file, line),
+        // keeping the best score any single token achieved (see
+        // TokenizeIntent's comment).
+        {
             const KeywordSearch keyword_search;
             std::unordered_map<std::string, KeywordMatch> best_by_line;
-            for (const auto& token : intent_tokens) {
-                const auto keyword_result = keyword_search.Search(scan_result.Value(), options_.project_root, token,
-                                                                    options_.max_keyword_matches, &scan_cache);
-                if (!keyword_result) {
-                    continue;
-                }
-                for (auto& match : keyword_result.Value()) {
-                    const std::string key = match.file_path + '\x1f' + std::to_string(match.line);
-                    auto [it, inserted] = best_by_line.try_emplace(key, match);
-                    if (!inserted && match.score > it->second.score) {
-                        it->second = match;
+            if (auto keyword_result = keyword_search.Search(snapshot->files, options_.project_root, intent_tokens,
+                                                            kNoPerTokenLimit, &snapshot->contents)) {
+                for (auto& per_token : keyword_result.Value()) {
+                    for (auto& match : per_token) {
+                        const std::string key = match.file_path + '\x1f' + std::to_string(match.line);
+                        auto [it, inserted] = best_by_line.try_emplace(key, match);
+                        if (!inserted && match.score > it->second.score) {
+                            it->second = match;
+                        }
                     }
                 }
             }
@@ -322,6 +392,9 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent) c
                               [](const KeywordMatch& a, const KeywordMatch& b) { return a.score > b.score; });
             if (merged.size() > options_.max_keyword_matches) {
                 merged.resize(options_.max_keyword_matches);
+                if (truncation != nullptr) {
+                    truncation->keyword = true;
+                }
             }
             for (const auto& match : merged) {
                 if (matched_files.count(match.file_path) != 0 || !passes_firewall(match.file_path)) {

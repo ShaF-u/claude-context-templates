@@ -46,6 +46,21 @@ public:
                                                              const std::string& root, const std::string& query,
                                                              std::size_t max_results = 200,
                                                              FileCache* content_cache = nullptr) const;
+
+    // Several queries in ONE pass over the files: each file is read (or
+    // fetched from `content_cache`) and each line lower-cased once, then
+    // tested against every query. Result i is exactly what
+    // Search(files, root, queries[i], max_results, content_cache) would
+    // return -- same per-query ranking and truncation -- just without
+    // repeating the file/line work per query. Exists for ContextRetriever,
+    // which searches every token of a free-text intent independently;
+    // with the single-query overload that was one full pass per token.
+    // An empty query contributes an empty result at its index.
+    [[nodiscard]] Result<std::vector<std::vector<KeywordMatch>>> Search(const std::vector<FileMetadata>& files,
+                                                                          const std::string& root,
+                                                                          const std::vector<std::string>& queries,
+                                                                          std::size_t max_results = 200,
+                                                                          FileCache* content_cache = nullptr) const;
 };
 
 } // namespace aistudio::core

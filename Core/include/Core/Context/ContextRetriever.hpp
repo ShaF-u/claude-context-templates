@@ -5,9 +5,14 @@
 #include "Core/IDE/EditorStateStore.hpp"
 #include "Core/Index/IncludeGraph.hpp"
 #include "Core/Index/SymbolIndex.hpp"
+#include "Core/Project/FileCache.hpp"
+#include "Core/Project/FileMetadata.hpp"
 #include "Core/Security/Sandbox.hpp"
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
@@ -82,6 +87,29 @@ namespace aistudio::core {
 // `context_cache` use one level up.
 class ContextRetriever {
 public:
+    // Which of Symbol/File/Keyword retrieval hit its Options::max_*_matches
+    // cap and had to drop lower-ranked candidates to fit (found via manual
+    // testing, 2026-09-18: a broad intent silently came back with exactly
+    // max_symbol_matches items and no signal that more relevant symbols
+    // existed but were cut — unlike ContextSelector's budget-driven
+    // exclusions, which are visible in ContextSelection::excluded, this
+    // truncation previously had no caller-visible trace at all). Dependency
+    // and Backend Context Provider retrieval have no cap of their own, so
+    // they have no corresponding field here. Known imprecision: each
+    // source's own per-token search call (see Retrieve()) is itself capped
+    // at max_*_matches before the tokens' results are merged, so a single
+    // dominant token could already have discarded matches that a flag here
+    // won't report if the final merged count happens to land at or under
+    // the cap — this only guarantees "the final list was cut", not "no
+    // source-level cut ever happened".
+    struct RetrievalTruncation {
+        bool symbol = false;
+        bool file = false;
+        bool keyword = false;
+
+        [[nodiscard]] bool Any() const { return symbol || file || keyword; }
+    };
+
     struct Options {
         const SymbolIndex* symbol_index = nullptr;
         const IncludeGraph* include_graph = nullptr;
@@ -122,13 +150,33 @@ public:
         std::size_t max_symbol_matches = 5;
         std::size_t max_file_matches = 5;
         std::size_t max_keyword_matches = 10;
+        // When true, the FileScanner::Scan() File/Keyword retrieval share
+        // (every file's metadata + content, read and hashed from disk) is
+        // done once and reused by every later Retrieve() call until
+        // InvalidateScan() is called. Profiling this project's own tree
+        // (2026-09-18, ~340 files, Debug build) put that rescan at
+        // ~750ms of a ~1.7s warm context_retrieve -- the single largest
+        // phase, paid on every call even though RunMcpMode() already runs
+        // a FileWatcher that knows exactly when a file changed. The
+        // caller that opts in owns wiring InvalidateScan() to that
+        // "FileChanged" event (see Core/src/main.cpp), the same
+        // bootstrap-site subscription shape ContextCache::InvalidateAll()
+        // uses; without such a trigger a cached scan is exactly the
+        // never-invalidated cache AGENT.md #7 warns against, so this stays
+        // opt-in. false (default) rescans on every call, unchanged from
+        // before this existed -- which is also why every unit test that
+        // writes files between two Retrieve() calls keeps working as-is.
+        bool cache_scan = false;
     };
 
     explicit ContextRetriever(Options options) : options_(std::move(options)) {}
 
     // Empty intent returns an empty result rather than matching
-    // everything.
-    [[nodiscard]] std::vector<ContextItem> Retrieve(const std::string& intent) const;
+    // everything. `truncation`, when non-null, is written with which
+    // sources hit their Options::max_*_matches cap — nullptr (the default)
+    // skips that entirely, unchanged from before this parameter existed.
+    [[nodiscard]] std::vector<ContextItem> Retrieve(const std::string& intent,
+                                                       RetrievalTruncation* truncation = nullptr) const;
 
     // Same Read() Retrieve() itself does for Active File Bias -- exposed
     // so ContextCache can fold the active document into its cache key
@@ -137,8 +185,37 @@ public:
     // a no-op (no editor_state_store, no state file, no active document).
     [[nodiscard]] std::optional<std::string> CurrentActiveDocumentPath() const;
 
+    // Discards the scan Options::cache_scan kept, so the next Retrieve()
+    // reads the project from disk again. No-op when cache_scan is false.
+    // Safe to call from a thread other than Retrieve()'s (FileWatcher
+    // publishes "FileChanged" from its own): a Retrieve() already past
+    // ScanProject() keeps using the snapshot it took, and one that
+    // started scanning before this call never publishes its stale result
+    // (see ScanProject()).
+    void InvalidateScan();
+
 private:
+    // One FileScanner::Scan() pass: `files` for File retrieval's path
+    // matching, `contents` (filled by that same pass) for Keyword
+    // retrieval's line matching. shared_ptr so a Retrieve() call holds
+    // its own reference for the duration and InvalidateScan() racing
+    // with it just drops the cache's reference, never the data underfoot.
+    struct ScanSnapshot {
+        std::vector<FileMetadata> files;
+        FileCache contents;
+    };
+
+    // Cached snapshot when Options::cache_scan is on and one is valid;
+    // otherwise a fresh scan. nullptr if the scan itself failed.
+    [[nodiscard]] std::shared_ptr<ScanSnapshot> ScanProject() const;
+
     Options options_;
+    mutable std::mutex scan_mutex_;
+    mutable std::shared_ptr<ScanSnapshot> scan_snapshot_;
+    // Bumped by InvalidateScan(); a scan that began under an older
+    // generation is not cached (it may predate the change that
+    // invalidated it), only returned to its own caller.
+    mutable std::uint64_t scan_generation_ = 0;
 };
 
 } // namespace aistudio::core

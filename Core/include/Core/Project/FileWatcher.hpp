@@ -23,13 +23,15 @@ struct FileChangeEvent {
 // FileChangeEvent to EventBus under "FileChanged" (AGENT.md #5).
 // PollOnce() itself is the whole diffing algorithm and is platform-
 // independent; Start()'s background loop drives when it runs. On Windows
-// (see FileWatcher.cpp), that loop uses ReadDirectoryChangesW to wait for
-// a real filesystem notification instead of sleeping for the full
-// `poll_interval`, so a change is normally picked up within a couple
-// hundred milliseconds rather than up to `poll_interval` later;
-// `poll_interval` still bounds the wait as a fallback (also used as the
-// plain timer interval on non-Windows, or if the native watch can't be
-// set up, e.g. a root that doesn't exist yet).
+// (see FileWatcher.cpp), that loop uses ReadDirectoryChangesW and
+// rescans ONLY when a real filesystem notification arrives -- a change
+// is normally picked up within a couple hundred milliseconds, and an
+// idle project costs no background scanning at all (it used to rescan
+// on every `poll_interval` timeout too; see the loop's own comment for
+// why that was both unnecessary and expensive). `poll_interval` is the
+// plain timer interval on non-Windows, or when the native watch can't
+// be set up (e.g. a root that doesn't exist yet); on the native path it
+// only bounds how long a single wait lasts.
 //
 // The very first successful PollOnce() call has no prior snapshot to diff
 // against, so every file the scan finds would otherwise be reported as

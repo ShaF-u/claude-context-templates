@@ -117,25 +117,57 @@ void FileWatcher::Start() {
         OVERLAPPED overlapped{};
         overlapped.hEvent = ::CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
+        // Rescans happen ONLY when the OS reports a change (or in the
+        // couldn't-arm fallback below) -- never on a timer. This loop used
+        // to call PollOnce() unconditionally at the top of every
+        // iteration, i.e. after every poll_interval_ (1s) timeout too, so
+        // an idle MCP session spent its background thread doing a full
+        // read+hash of the whole project once a second (profiled
+        // 2026-09-18 on this repo's ~340 files, Debug build: ~0.7-1.7s per
+        // scan, i.e. one core pegged permanently), which is what made
+        // context_retrieve's own timings both slow and noisy. The timer
+        // fallback was only needed because the read was armed AFTER the
+        // initial PollOnce(), leaving a window a write could slip through
+        // unnoticed (test_file_watcher.cpp's ReactsToChangeFasterThan
+        // PollInterval test documents that window). Arming first closes
+        // it: once a ReadDirectoryChangesW has been issued on the handle,
+        // the system keeps buffering changes on it between calls, so
+        // nothing that happens during a PollOnce() (or the debounce sleep)
+        // is lost -- it's delivered by the next read. A notification
+        // buffer overflow completes the read with zero bytes, which still
+        // lands in the same "notification arrived -> full PollOnce() diff"
+        // path, so an overflow degrades to one extra full rescan, never
+        // to a missed change.
+        bool armed = false;
+        bool baseline_pending = true;
         while (running_.load()) {
-            PollOnce();
-
-            ::ResetEvent(overlapped.hEvent);
-            DWORD bytes_returned = 0;
-            const BOOL issued = ::ReadDirectoryChangesW(
-                directory_handle, notify_buffer.data(), static_cast<DWORD>(notify_buffer.size()),
-                /*bWatchSubtree=*/TRUE,
-                FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_LAST_WRITE |
-                    FILE_NOTIFY_CHANGE_SIZE,
-                &bytes_returned, &overlapped, nullptr);
-            if (!issued) {
-                // Same fallback rationale as the CreateFileW failure above
-                // -- couldn't queue the watch this time, so just wait out
-                // one plain interval and try again next iteration.
-                if (::WaitForSingleObject(stop_event, static_cast<DWORD>(poll_interval_.count())) == WAIT_OBJECT_0) {
-                    break;
+            if (!armed) {
+                ::ResetEvent(overlapped.hEvent);
+                DWORD bytes_returned = 0;
+                armed = ::ReadDirectoryChangesW(
+                            directory_handle, notify_buffer.data(), static_cast<DWORD>(notify_buffer.size()),
+                            /*bWatchSubtree=*/TRUE,
+                            FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
+                                FILE_NOTIFY_CHANGE_LAST_WRITE | FILE_NOTIFY_CHANGE_SIZE,
+                            &bytes_returned, &overlapped, nullptr) != FALSE;
+                if (!armed) {
+                    // Same fallback rationale as the CreateFileW failure
+                    // above -- couldn't queue the watch this time, so scan
+                    // on the plain timer and try to arm again next
+                    // iteration.
+                    PollOnce();
+                    if (::WaitForSingleObject(stop_event, static_cast<DWORD>(poll_interval_.count())) ==
+                        WAIT_OBJECT_0) {
+                        break;
+                    }
+                    continue;
                 }
-                continue;
+            }
+            if (baseline_pending) {
+                // Confirms (or establishes) the baseline once, after the
+                // watch is armed -- see above for why the order matters.
+                baseline_pending = false;
+                PollOnce();
             }
 
             const HANDLE wait_handles[2] = {overlapped.hEvent, stop_event};
@@ -153,20 +185,18 @@ void FileWatcher::Start() {
             }
             if (wait_result == WAIT_OBJECT_0) {
                 // A real notification arrived; reap it (required before
-                // the OVERLAPPED can be reused) and let a short burst of
-                // further writes settle before re-scanning.
+                // the OVERLAPPED can be reused), let a short burst of
+                // further writes settle, then rescan. The next iteration
+                // re-arms.
                 DWORD unused = 0;
                 ::GetOverlappedResult(directory_handle, &overlapped, &unused, FALSE);
+                armed = false;
                 std::this_thread::sleep_for(kDebounceWindow);
-            } else {
-                // WAIT_TIMEOUT: poll_interval_ elapsed with nothing
-                // reported. The read is still pending against
-                // notify_buffer/overlapped -- cancel and reap it so the
-                // next loop iteration can safely reuse both.
-                ::CancelIoEx(directory_handle, &overlapped);
-                DWORD unused = 0;
-                ::GetOverlappedResult(directory_handle, &overlapped, &unused, TRUE);
+                PollOnce();
             }
+            // WAIT_TIMEOUT: nothing changed. The read stays pending, so
+            // just wait again -- poll_interval_ here only bounds how long
+            // one wait lasts, it no longer triggers a scan.
         }
 
         ::CloseHandle(overlapped.hEvent);

@@ -247,6 +247,68 @@ AISTUDIO_TEST(KeywordSearch_ScannedOverload_EmptyQuery_ReturnsEmpty) {
     AISTUDIO_EXPECT(result.Value().empty());
 }
 
+AISTUDIO_TEST(KeywordSearch_MultiQueryOverload_MatchesSingleQueryResultsPerQuery) {
+    TempProject project;
+    project.WriteFile("a.cpp", "int attack = attack + attack;\n// defend here\n");
+    project.WriteFile("b.cpp", "int attacker = 1;\nvoid Defend() {}\n");
+
+    const FileScanner scanner;
+    const auto scan = scanner.Scan(project.RootString());
+    AISTUDIO_EXPECT(scan.IsOk());
+
+    const KeywordSearch search;
+    const std::vector<std::string> queries = {"attack", "defend", "nowhere"};
+    const auto multi = search.Search(scan.Value(), project.RootString(), queries, 200);
+    AISTUDIO_EXPECT(multi.IsOk());
+    AISTUDIO_EXPECT(multi.Value().size() == 3);
+
+    for (std::size_t i = 0; i < queries.size(); ++i) {
+        const auto single = search.Search(scan.Value(), project.RootString(), queries[i], 200);
+        AISTUDIO_EXPECT(single.IsOk());
+        const auto& expected = single.Value();
+        const auto& actual = multi.Value()[i];
+        AISTUDIO_EXPECT(actual.size() == expected.size());
+        for (std::size_t j = 0; j < expected.size() && j < actual.size(); ++j) {
+            AISTUDIO_EXPECT(actual[j].file_path == expected[j].file_path);
+            AISTUDIO_EXPECT(actual[j].line == expected[j].line);
+            AISTUDIO_EXPECT(actual[j].text == expected[j].text);
+            AISTUDIO_EXPECT(actual[j].score == expected[j].score);
+        }
+    }
+    AISTUDIO_EXPECT(multi.Value()[2].empty());
+}
+
+AISTUDIO_TEST(KeywordSearch_MultiQueryOverload_EmptyQueryYieldsEmptySlot) {
+    TempProject project;
+    project.WriteFile("a.cpp", "int attack = 1;\n");
+
+    const FileScanner scanner;
+    const auto scan = scanner.Scan(project.RootString());
+    AISTUDIO_EXPECT(scan.IsOk());
+
+    const KeywordSearch search;
+    const auto multi = search.Search(scan.Value(), project.RootString(), std::vector<std::string>{"", "attack"}, 200);
+    AISTUDIO_EXPECT(multi.IsOk());
+    AISTUDIO_EXPECT(multi.Value().size() == 2);
+    AISTUDIO_EXPECT(multi.Value()[0].empty());
+    AISTUDIO_EXPECT(ContainsFile(multi.Value()[1], "a.cpp"));
+}
+
+AISTUDIO_TEST(KeywordSearch_MultiQueryOverload_RespectsMaxResultsPerQuery) {
+    TempProject project;
+    project.WriteFile("a.cpp", "attack\nattack\nattack\ndefend\n");
+
+    const FileScanner scanner;
+    const auto scan = scanner.Scan(project.RootString());
+    AISTUDIO_EXPECT(scan.IsOk());
+
+    const KeywordSearch search;
+    const auto multi = search.Search(scan.Value(), project.RootString(), std::vector<std::string>{"attack", "defend"}, 2);
+    AISTUDIO_EXPECT(multi.IsOk());
+    AISTUDIO_EXPECT(multi.Value()[0].size() == 2);
+    AISTUDIO_EXPECT(multi.Value()[1].size() == 1);
+}
+
 AISTUDIO_TEST(KeywordSearch_RootOverload_StillWorksUnchanged) {
     TempProject project;
     project.WriteFile("a.cpp", "void DoAttack() {}\n");

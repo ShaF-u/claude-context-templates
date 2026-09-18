@@ -337,7 +337,11 @@ Json ToolsList(const McpServerOptions& options) {
                              "files to read. When a response token budget is configured, lower-priority items "
                              "that don't fit are returned content-free in an \"omitted\" array (with a "
                              "\"budget\" summary) instead of being dropped — pass such an id to context_fetch "
-                             "to read it."},
+                             "to read it. The response's \"truncated\" object (symbol/file/keyword booleans) "
+                             "reports whether that category had MORE matches than were returned at all — true "
+                             "there means relevant results exist beyond what you see, not just that some were "
+                             "deprioritized; narrow the intent, or call symbol_search/keyword_search directly, "
+                             "to see the rest."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -734,22 +738,37 @@ Json CallTool(const McpServerOptions& options, const std::string& name, const Js
         }
 
         const auto intent = arguments["intent"].get<std::string>();
+        ContextRetriever::RetrievalTruncation truncation;
         auto items = options.context_cache != nullptr
-                          ? options.context_cache->GetOrRetrieve(*options.context_retriever, intent)
-                          : options.context_retriever->Retrieve(intent);
+                          ? options.context_cache->GetOrRetrieve(*options.context_retriever, intent, &truncation)
+                          : options.context_retriever->Retrieve(intent, &truncation);
+
+        // Symbol/File/Keyword retrieval each cap at Options::max_*_matches
+        // (ContextRetriever.hpp) -- a match beyond the cap is dropped
+        // before it's even a candidate for ContextSelector's budget-based
+        // "omitted" below, so it would otherwise leave no trace the caller
+        // could see at all (found via manual testing, 2026-09-18). Always
+        // present, not just when true, so a caller can check one fixed
+        // shape rather than a field that sometimes doesn't exist.
+        Json truncated_json = Json{
+            {"symbol", truncation.symbol},
+            {"file", truncation.file},
+            {"keyword", truncation.keyword},
+        };
 
         if (options.suppress_resent_content && options.sent_ledger != nullptr) {
             options.sent_ledger->BeginResponse();
         }
 
         // No budget: byte-for-byte the pre-existing response (when the
-        // sent ledger is also off -- its default).
+        // sent ledger is also off -- its default), plus the new
+        // "truncated" field above.
         if (options.context_response_budget_tokens <= 0) {
             Json list = Json::array();
             for (const auto& item : items) {
                 list.push_back(ContextItemJsonThroughLedger(item, options));
             }
-            return TextContent(Json{{"items", list}}.dump());
+            return TextContent(Json{{"items", list}, {"truncated", truncated_json}}.dump());
         }
 
         // AGENT.md #8's Compression + Budget Check, applied to the path an
@@ -784,6 +803,7 @@ Json CallTool(const McpServerOptions& options, const std::string& name, const Js
         return TextContent(Json{
             {"items", list},
             {"omitted", omitted},
+            {"truncated", truncated_json},
             {"budget",
              Json{
                  {"max_tokens", options.context_response_budget_tokens},

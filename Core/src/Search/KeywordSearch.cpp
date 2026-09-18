@@ -7,6 +7,7 @@
 #include <cctype>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 
 namespace aistudio::core {
@@ -62,34 +63,59 @@ int CountOccurrences(const std::string& lower_line, const std::string& lower_nee
     return count;
 }
 
-void ScanLinesForMatches(const std::string& file_path, std::istream& stream, const std::string& lower_query,
-                          std::vector<KeywordMatch>& matches) {
+// One pass over `stream`'s lines for every query at once: the line is
+// lower-cased (and, on a hit, trimmed + UTF-8-checked) once, not once
+// per query. matches_per_query[i] receives query i's hits. An empty
+// query never matches (CountOccurrences would otherwise loop forever on
+// an empty needle -- every caller filters those out before this).
+void ScanLinesForMatches(const std::string& file_path, std::istream& stream,
+                          const std::vector<std::string>& lower_queries,
+                          std::vector<std::vector<KeywordMatch>>& matches_per_query) {
     std::string line;
     int line_number = 0;
     while (std::getline(stream, line)) {
         ++line_number;
 
-        bool has_whole_word = false;
-        const int occurrences = CountOccurrences(ToLower(line), lower_query, has_whole_word);
-        if (occurrences == 0) {
-            continue;
-        }
+        const std::string lower_line = ToLower(line);
+        // Computed lazily on the first query that hits this line, then
+        // shared by every later one.
+        std::optional<std::string> valid_text;
+        bool text_rejected = false;
 
-        // FileScanner has no text/binary distinction -- a "line" (0x0A-
-        // delimited) read out of a binary file can contain arbitrary
-        // bytes, which would crash JSON serialization downstream
-        // (invalid UTF-8) rather than just skip this one match.
-        std::string text = TrimLine(line);
-        if (!IsValidUtf8(text)) {
-            continue;
-        }
+        for (std::size_t i = 0; i < lower_queries.size(); ++i) {
+            if (lower_queries[i].empty()) {
+                continue;
+            }
+            bool has_whole_word = false;
+            const int occurrences = CountOccurrences(lower_line, lower_queries[i], has_whole_word);
+            if (occurrences == 0) {
+                continue;
+            }
 
-        KeywordMatch match;
-        match.file_path = file_path;
-        match.line = line_number;
-        match.text = std::move(text);
-        match.score = occurrences * 10 + (has_whole_word ? 5 : 0);
-        matches.push_back(std::move(match));
+            if (text_rejected) {
+                continue;
+            }
+            if (!valid_text.has_value()) {
+                // FileScanner has no text/binary distinction -- a "line"
+                // (0x0A-delimited) read out of a binary file can contain
+                // arbitrary bytes, which would crash JSON serialization
+                // downstream (invalid UTF-8) rather than just skip this
+                // one match.
+                std::string text = TrimLine(line);
+                if (!IsValidUtf8(text)) {
+                    text_rejected = true;
+                    continue;
+                }
+                valid_text = std::move(text);
+            }
+
+            KeywordMatch match;
+            match.file_path = file_path;
+            match.line = line_number;
+            match.text = *valid_text;
+            match.score = occurrences * 10 + (has_whole_word ? 5 : 0);
+            matches_per_query[i].push_back(std::move(match));
+        }
     }
 }
 
@@ -114,19 +140,38 @@ Result<std::vector<KeywordMatch>> KeywordSearch::Search(const std::string& root,
 Result<std::vector<KeywordMatch>> KeywordSearch::Search(const std::vector<FileMetadata>& files,
                                                           const std::string& root, const std::string& query,
                                                           std::size_t max_results, FileCache* content_cache) const {
-    std::vector<KeywordMatch> matches;
-    if (query.empty()) {
-        return Result<std::vector<KeywordMatch>>::Ok(std::move(matches));
+    auto result = Search(files, root, std::vector<std::string>{query}, max_results, content_cache);
+    if (!result) {
+        return Result<std::vector<KeywordMatch>>::Fail(result.Err());
+    }
+    return Result<std::vector<KeywordMatch>>::Ok(std::move(result.Value().front()));
+}
+
+Result<std::vector<std::vector<KeywordMatch>>> KeywordSearch::Search(const std::vector<FileMetadata>& files,
+                                                                       const std::string& root,
+                                                                       const std::vector<std::string>& queries,
+                                                                       std::size_t max_results,
+                                                                       FileCache* content_cache) const {
+    std::vector<std::vector<KeywordMatch>> matches_per_query(queries.size());
+
+    std::vector<std::string> lower_queries;
+    lower_queries.reserve(queries.size());
+    bool any_query = false;
+    for (const auto& query : queries) {
+        lower_queries.push_back(ToLower(query));
+        any_query = any_query || !query.empty();
+    }
+    if (!any_query) {
+        return Result<std::vector<std::vector<KeywordMatch>>>::Ok(std::move(matches_per_query));
     }
 
-    const std::string lower_query = ToLower(query);
     const std::filesystem::path root_path = Utf8ToPath(root);
 
     for (const auto& metadata : files) {
         if (content_cache != nullptr) {
             if (const auto cached = content_cache->Get(metadata)) {
                 std::istringstream stream(*cached);
-                ScanLinesForMatches(metadata.path, stream, lower_query, matches);
+                ScanLinesForMatches(metadata.path, stream, lower_queries, matches_per_query);
                 continue;
             }
         }
@@ -135,16 +180,18 @@ Result<std::vector<KeywordMatch>> KeywordSearch::Search(const std::vector<FileMe
         if (!file.is_open()) {
             continue;
         }
-        ScanLinesForMatches(metadata.path, file, lower_query, matches);
+        ScanLinesForMatches(metadata.path, file, lower_queries, matches_per_query);
     }
 
-    std::stable_sort(matches.begin(), matches.end(),
-                      [](const KeywordMatch& a, const KeywordMatch& b) { return a.score > b.score; });
-    if (matches.size() > max_results) {
-        matches.resize(max_results);
+    for (auto& matches : matches_per_query) {
+        std::stable_sort(matches.begin(), matches.end(),
+                          [](const KeywordMatch& a, const KeywordMatch& b) { return a.score > b.score; });
+        if (matches.size() > max_results) {
+            matches.resize(max_results);
+        }
     }
 
-    return Result<std::vector<KeywordMatch>>::Ok(std::move(matches));
+    return Result<std::vector<std::vector<KeywordMatch>>>::Ok(std::move(matches_per_query));
 }
 
 } // namespace aistudio::core

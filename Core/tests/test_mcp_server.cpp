@@ -382,6 +382,35 @@ AISTUDIO_TEST(McpServer_ToolsCall_ContextRetrieve_WithContextCache_SecondCallIsC
     AISTUDIO_EXPECT(context_cache.Stats().misses == 1);
 }
 
+AISTUDIO_TEST(McpServer_ToolsCall_ContextRetrieve_ReportsTruncation) {
+    TempProject project;
+    project.WriteFile("a.hpp", "class Attack1 {\n};\nclass Attack2 {\n};\nclass Attack3 {\n};\n");
+
+    SymbolIndex symbol_index;
+    symbol_index.Build(project.RootString());
+    const ContextRetriever retriever(
+        ContextRetriever::Options{.symbol_index = &symbol_index, .max_symbol_matches = 1});
+    const McpServer server(McpServerOptions{.context_retriever = &retriever});
+
+    const auto content = ParsedContent(ToolCallResult(server, "context_retrieve", Json{{"intent", "Attack"}}));
+    AISTUDIO_EXPECT(content["truncated"]["symbol"] == true);
+    AISTUDIO_EXPECT(content["truncated"]["file"] == false);
+    AISTUDIO_EXPECT(content["truncated"]["keyword"] == false);
+}
+
+AISTUDIO_TEST(McpServer_ToolsCall_ContextRetrieve_TruncatedFieldPresentWhenNothingTruncated) {
+    TempProject project;
+    project.WriteFile("Player.hpp", "class PlayerAttack {\n};\n");
+
+    SymbolIndex symbol_index;
+    symbol_index.Build(project.RootString());
+    const ContextRetriever retriever(ContextRetriever::Options{.symbol_index = &symbol_index});
+    const McpServer server(McpServerOptions{.context_retriever = &retriever});
+
+    const auto content = ParsedContent(ToolCallResult(server, "context_retrieve", Json{{"intent", "PlayerAttack"}}));
+    AISTUDIO_EXPECT(content["truncated"]["symbol"] == false);
+}
+
 AISTUDIO_TEST(McpServer_ToolsCall_ContextRetrieve_NotConfigured_IsError) {
     const McpServer server(McpServerOptions{});
     const auto response = ToolCallResult(server, "context_retrieve", Json{{"intent", "anything"}});

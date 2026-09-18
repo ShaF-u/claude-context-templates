@@ -16,7 +16,8 @@ std::string BuildKey(const ContextRetriever& retriever, const std::string& inten
 
 } // namespace
 
-std::vector<ContextItem> ContextCache::GetOrRetrieve(const ContextRetriever& retriever, const std::string& intent) {
+std::vector<ContextItem> ContextCache::GetOrRetrieve(const ContextRetriever& retriever, const std::string& intent,
+                                                       ContextRetriever::RetrievalTruncation* truncation) {
     // Known limitation (code review, 2026-09-05): Get()+Put() here are each
     // individually locked by Cache<T>, but the check-then-compute-then-put
     // sequence as a whole is not atomic. Two concurrent callers for the
@@ -31,11 +32,19 @@ std::vector<ContextItem> ContextCache::GetOrRetrieve(const ContextRetriever& ret
     const std::string key = BuildKey(retriever, intent);
     const std::string version = std::to_string(generation_);
     if (auto cached = cache_.Get(key, version); cached.has_value()) {
-        return *cached;
+        if (truncation != nullptr) {
+            *truncation = cached->truncation;
+        }
+        return std::move(cached->items);
     }
 
-    std::vector<ContextItem> items = retriever.Retrieve(intent);
-    cache_.Put(key, items, {.version = version});
+    CachedRetrieval computed;
+    computed.items = retriever.Retrieve(intent, &computed.truncation);
+    if (truncation != nullptr) {
+        *truncation = computed.truncation;
+    }
+    std::vector<ContextItem> items = computed.items;
+    cache_.Put(key, std::move(computed), {.version = version});
     return items;
 }
 

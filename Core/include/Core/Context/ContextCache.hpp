@@ -69,7 +69,15 @@ public:
     // call site already binds one ContextRetriever to one ContextCache
     // for its whole process lifetime, so `&retriever` alone already
     // implies a fixed project_root/firewall too.
-    [[nodiscard]] std::vector<ContextItem> GetOrRetrieve(const ContextRetriever& retriever, const std::string& intent);
+    // `truncation`, when non-null, is written with the retrieval's
+    // RetrievalTruncation regardless of whether this call actually ran
+    // Retrieve() or served a cache hit — the truncation state from when
+    // the entry was computed is cached right alongside its items, for the
+    // same reason as the items themselves: a cache hit must answer exactly
+    // as a fresh Retrieve() call would have. nullptr (the default) skips
+    // this, unchanged from before this parameter existed.
+    [[nodiscard]] std::vector<ContextItem> GetOrRetrieve(const ContextRetriever& retriever, const std::string& intent,
+                                                           ContextRetriever::RetrievalTruncation* truncation = nullptr);
 
     // Discards every cached intent — the intended, coarse-grained
     // invalidation call (see class comment for why coarse is correct
@@ -91,7 +99,17 @@ public:
     [[nodiscard]] CacheStats Stats() const;
 
 private:
-    Cache<std::vector<ContextItem>> cache_;
+    // Bundles items with the RetrievalTruncation Retrieve() produced them
+    // with, so a cache hit can report the same truncation a fresh call
+    // would have — see GetOrRetrieve()'s own comment. Private: callers
+    // never see this type, only the unpacked std::vector<ContextItem> +
+    // out-parameter GetOrRetrieve() itself already returns.
+    struct CachedRetrieval {
+        std::vector<ContextItem> items;
+        ContextRetriever::RetrievalTruncation truncation;
+    };
+
+    Cache<CachedRetrieval> cache_;
     std::int64_t generation_ = 0;
 };
 

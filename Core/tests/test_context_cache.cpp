@@ -107,6 +107,32 @@ AISTUDIO_TEST(ContextCache_GetOrRetrieve_SameIntentTwice_SecondCallIsCacheHit) {
     AISTUDIO_EXPECT(stats.misses == 1);
 }
 
+AISTUDIO_TEST(ContextCache_GetOrRetrieve_TruncationSurvivesCacheHit) {
+    TempProject project;
+    project.WriteFile("a.hpp", "class Attack1 {\n};\nclass Attack2 {\n};\nclass Attack3 {\n};\n");
+
+    SymbolIndex symbol_index;
+    symbol_index.Build(project.RootString());
+
+    ContextRetriever::Options options;
+    options.symbol_index = &symbol_index;
+    options.max_symbol_matches = 1;
+    const ContextRetriever retriever(options);
+
+    ContextCache cache;
+    ContextRetriever::RetrievalTruncation first_truncation;
+    (void)cache.GetOrRetrieve(retriever, "Attack", &first_truncation);
+    AISTUDIO_EXPECT(first_truncation.symbol);
+
+    // Second call is a cache hit (see ContextCache_GetOrRetrieve_
+    // SameIntentTwice_SecondCallIsCacheHit above) -- truncation must still
+    // report true, not silently reset because Retrieve() itself didn't run.
+    ContextRetriever::RetrievalTruncation second_truncation;
+    (void)cache.GetOrRetrieve(retriever, "Attack", &second_truncation);
+    AISTUDIO_EXPECT(second_truncation.symbol);
+    AISTUDIO_EXPECT(cache.Stats().hits == 1);
+}
+
 AISTUDIO_TEST(ContextCache_GetOrRetrieve_DifferentIntents_AreIndependentEntries) {
     TempProject project;
     project.WriteFile("Player.hpp", "class PlayerAttack {\n};\n");
