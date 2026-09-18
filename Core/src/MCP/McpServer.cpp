@@ -291,9 +291,8 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.symbol_index != nullptr) {
         tools.push_back(Json{
             {"name", "symbol_search"},
-            {"description", "Ranked lookup of Class/Struct/Function/Namespace/Variable symbols by name or "
-                             "partial name across the indexed project. Prefer this over reading whole files "
-                             "when you already know roughly what symbol you're looking for."},
+            {"description", "Ranked lookup of symbols (class/struct/function/namespace/variable) by full or partial "
+                             "name. Prefer over reading whole files when you know roughly what you want."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -310,9 +309,8 @@ Json ToolsList(const McpServerOptions& options) {
     if (!options.project_root.empty()) {
         tools.push_back(Json{
             {"name", "keyword_search"},
-            {"description", "Case-insensitive full-text substring search across the project's source files, "
-                             "line by line. Use symbol_search first for known identifiers; use this for free "
-                             "text, comments, or strings."},
+            {"description", "Case-insensitive substring search over every source line. Use symbol_search for "
+                             "identifiers; this for free text, comments, strings."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -329,27 +327,18 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.context_retriever != nullptr) {
         tools.push_back(Json{
             {"name", "context_retrieve"},
-            {"description", "Intent-driven retrieval combining symbol, file, dependency, and keyword matches, "
-                             "plus whatever registered Backends contribute for this intent (e.g. File/Git "
-                             "Provider content), into a single ranked result (docs/MASTER_SPEC.md Context "
-                             "Engine). Given a free-text description of a task, returns the relevant "
-                             "symbols/files/dependencies/commits instead of requiring you to guess which whole "
-                             "files to read. When a response token budget is configured, lower-priority items "
-                             "that don't fit are returned content-free in an \"omitted\" array (with a "
-                             "\"budget\" summary) instead of being dropped — pass such an id to context_fetch "
-                             "to read it. The response's \"truncated\" object (symbol/file/keyword booleans) "
-                             "reports whether that category had MORE matches than were returned at all — true "
-                             "there means relevant results exist beyond what you see, not just that some were "
-                             "deprioritized; narrow the intent, or call symbol_search/keyword_search directly, "
-                             "to see the rest."},
+            {"description", "Given a free-text task description, returns the relevant symbols, files, dependencies and "
+                             "commits (ranked) instead of whole files. With a token budget, items that don't fit come "
+                             "back content-free in \"omitted\" (fetch by id with context_fetch). \"truncated\" "
+                             "{symbol,file,keyword} = true means more matches existed than returned: narrow the intent "
+                             "or use symbol_search/keyword_search."},
             {"inputSchema",
              Json{
                  {"type", "object"},
                  {"properties",
                   Json{
                       {"intent", Json{{"type", "string"},
-                                       {"description", "Free-text description of what you're looking for, "
-                                                        "e.g. \"player attack logic\"."}}},
+                                       {"description", "What you're looking for, e.g. \"player attack logic\"."}}},
                   }},
                  {"required", Json::array({"intent"})},
              }},
@@ -359,18 +348,16 @@ Json ToolsList(const McpServerOptions& options) {
     if (!options.project_root.empty()) {
         tools.push_back(Json{
             {"name", "context_fetch"},
-            {"description", "Reads one project file, whole or by line range — the explicit \"give me the full "
-                             "text\" step of the retrieval ladder (docs/MASTER_SPEC.md #99). Use it to follow "
-                             "up on a context_retrieve item that came back omitted or summarized, rather than "
-                             "asking for whole files up front."},
+            {"description", "Reads one project file, whole or by line range. Use to follow up on a context_retrieve "
+                             "item that was omitted or summarized."},
             {"inputSchema",
              Json{
                  {"type", "object"},
                  {"properties",
                   Json{
                       {"id", Json{{"type", "string"},
-                                   {"description", "Project-relative file path — the id a File-source "
-                                                    "context_retrieve item carries."}}},
+                                   {"description", "Project-relative file path (the id of a File item from "
+                                                    "context_retrieve)."}}},
                       {"mode", Json{{"type", "string"},
                                      {"enum", Json::array({"full", "range"})},
                                      {"description", "\"full\" (default): the whole file. \"range\": only "
@@ -380,8 +367,8 @@ Json ToolsList(const McpServerOptions& options) {
                       {"end_line", Json{{"type", "integer"}, {"minimum", 1},
                                          {"description", "1-based, inclusive. Required for mode \"range\"."}}},
                       {"max_tokens", Json{{"type", "integer"}, {"minimum", 1},
-                                           {"description", "Optional cap; a longer result comes back as a "
-                                                            "head/tail excerpt with an omission marker."}}},
+                                           {"description", "Optional cap; longer results are returned as a head/tail "
+                                                            "excerpt."}}},
                   }},
                  {"required", Json::array({"id"})},
              }},
@@ -391,8 +378,7 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.include_graph != nullptr) {
         tools.push_back(Json{
             {"name", "include_graph"},
-            {"description", "Looks up #include relationships for one file: what it includes, or what includes "
-                             "it. Useful for understanding compile-time dependencies before changing a header."},
+            {"description", "#include relationships of one file: what it includes, or what includes it."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -401,8 +387,7 @@ Json ToolsList(const McpServerOptions& options) {
                       {"file_path", Json{{"type", "string"}, {"description", "Project-relative path of the file."}}},
                       {"direction", Json{{"type", "string"},
                                           {"enum", Json::array({"includes", "included_by"})},
-                                          {"description", "\"includes\" (default): files this file includes. "
-                                                           "\"included_by\": files that include this file."}}},
+                                          {"description", "\"includes\" (default) or \"included_by\"."}}},
                   }},
                  {"required", Json::array({"file_path"})},
              }},
@@ -412,10 +397,8 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.call_graph != nullptr) {
         tools.push_back(Json{
             {"name", "call_graph"},
-            {"description", "Looks up call relationships for one function/method by its qualified name: what it "
-                             "calls, or (heuristically, by name -- no type resolution) what calls it. Use "
-                             "before renaming or changing a function's behavior to see what else might be "
-                             "affected."},
+            {"description", "Call relationships of one function/method (qualified name): its callees, or "
+                             "(name-matched, no type resolution) its callers."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -426,9 +409,7 @@ Json ToolsList(const McpServerOptions& options) {
                                                              "\"ContextSelector::Select\"."}}},
                       {"direction", Json{{"type", "string"},
                                           {"enum", Json::array({"callees", "callers"})},
-                                          {"description", "\"callers\" (default): call sites that call this "
-                                                           "symbol. \"callees\": calls made from inside this "
-                                                           "symbol's body."}}},
+                                          {"description", "\"callers\" (default) or \"callees\"."}}},
                   }},
                  {"required", Json::array({"symbol_name"})},
              }},
@@ -438,8 +419,7 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.inheritance_graph != nullptr) {
         tools.push_back(Json{
             {"name", "inheritance_graph"},
-            {"description", "Looks up class inheritance relationships by class name: direct base classes, or "
-                             "direct subclasses."},
+            {"description", "Direct base classes or direct subclasses of a class."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -449,9 +429,7 @@ Json ToolsList(const McpServerOptions& options) {
                                            {"description", "Plain class/struct name (no template arguments)."}}},
                       {"direction", Json{{"type", "string"},
                                           {"enum", Json::array({"bases", "derived"})},
-                                          {"description", "\"derived\" (default): direct subclasses of this "
-                                                           "class. \"bases\": this class's own direct base "
-                                                           "classes."}}},
+                                          {"description", "\"derived\" (default) or \"bases\"."}}},
                   }},
                  {"required", Json::array({"class_name"})},
              }},
@@ -461,9 +439,8 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.reference_graph != nullptr) {
         tools.push_back(Json{
             {"name", "reference_graph"},
-            {"description", "Finds every place a type name is referenced (declared type, parameter/return "
-                             "type, base class, template argument, cast target) across the project -- not just "
-                             "its definition."},
+            {"description", "Every reference to a type name (declared type, parameter/return, base class, template "
+                             "argument, cast), not just its definition."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -479,11 +456,9 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.ast_index != nullptr) {
         tools.push_back(Json{
             {"name", "ast_tree"},
-            {"description", "Returns one file's full parse tree (named nodes only -- declarations, statements, "
-                             "expressions, identifiers, literals, not punctuation) as nested "
-                             "kind/start_line/end_line/children/text objects. Prefer symbol_search for a known "
-                             "declaration's signature; use this when you need the actual structure (e.g. to find "
-                             "where to insert a new member, or to see a function body's statement layout)."},
+            {"description", "One file's parse tree (named nodes only) as nested "
+                             "kind/start_line/end_line/children/text. Use when you need structure (where to insert a "
+                             "member, statement layout); symbol_search for signatures."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -499,10 +474,8 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.impact_analyzer != nullptr) {
         tools.push_back(Json{
             {"name", "impact_analysis"},
-            {"description", "Given a file, reports every file that transitively includes it and every "
-                             "function/method it defines together with (heuristically matched) call sites "
-                             "elsewhere -- a starting estimate of \"what could this change affect?\" before "
-                             "editing a file."},
+            {"description", "For a file: every file that transitively includes it, and every function it defines with "
+                             "name-matched call sites elsewhere. A first estimate of what a change could affect."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -519,11 +492,8 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.impact_analyzer != nullptr && options.backend_registry != nullptr) {
         tools.push_back(Json{
             {"name", "changed_impact_analysis"},
-            {"description", "Reports every file, symbol, and downstream caller touched by the CURRENT "
-                             "uncommitted changes (staged and unstaged combined) -- the live counterpart to "
-                             "impact_analysis, answering \"what does my in-progress edit affect?\" without "
-                             "needing to name a file. Only sees changes to already-tracked files; brand new "
-                             "untracked files aren't visible yet."},
+            {"description", "Files, symbols and downstream callers touched by the current uncommitted changes (staged "
+                             "+ unstaged; tracked files only)."},
             {"inputSchema", Json{{"type", "object"}, {"properties", Json::object()}}},
         });
     }
@@ -531,19 +501,15 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.impact_analyzer != nullptr && options.backend_registry != nullptr) {
         tools.push_back(Json{
             {"name", "branch_impact_analysis"},
-            {"description", "Reports every file, symbol, and downstream caller changed on the CURRENT branch "
-                             "since it diverged from the given base branch (staged, unstaged, and already "
-                             "committed changes all combined) -- the whole-branch/pull-request counterpart to "
-                             "changed_impact_analysis, answering \"what does my whole branch change?\" before "
-                             "opening or updating a PR."},
+            {"description", "Files, symbols and downstream callers changed on this branch since it diverged from "
+                             "base_branch (committed + staged + unstaged). Use before opening/updating a PR."},
             {"inputSchema",
              Json{
                  {"type", "object"},
                  {"properties",
                   Json{
                       {"base_branch", Json{{"type", "string"},
-                                            {"description", "Branch this one diverged from, e.g. \"Develop\" or "
-                                                             "\"main\"."}}},
+                                            {"description", "Branch this one diverged from, e.g. \"main\"."}}},
                   }},
                  {"required", Json::array({"base_branch"})},
              }},
@@ -553,18 +519,14 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.backend_registry != nullptr) {
         tools.push_back(Json{
             {"name", "project_rules"},
-            {"description", "Returns this project's standing conventions/rules (docs/MASTER_SPEC.md #25) -- "
-                             "coding style, architectural constraints, git workflow, etc -- so they don't need to "
-                             "be re-explained. Call this once near the start of a task rather than guessing "
-                             "project conventions."},
+            {"description", "This project's standing conventions (coding style, architecture constraints, git "
+                             "workflow). Call once near the start of a task."},
             {"inputSchema", Json{{"type", "object"}, {"properties", Json::object()}}},
         });
         tools.push_back(Json{
             {"name", "similar_change_search"},
-            {"description", "Finds past commits that changed the given symbol/identifier before (pickaxe "
-                             "search over commit content, not just messages), each with its full diff -- "
-                             "\"how has this specific piece of code changed before?\" Useful before modifying a "
-                             "function to see its own change history."},
+            {"description", "Past commits whose content changed the given symbol (pickaxe search), each with its diff: "
+                             "how this code changed before."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -655,13 +617,8 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.editor_state_store != nullptr) {
         tools.push_back(Json{
             {"name", "active_document"},
-            {"description", "Reports which file (if any) is currently open/focused in a connected IDE extension "
-                             "(Tools/vscode-extension today; any future Visual Studio/Rider counterpart reports "
-                             "through the same mechanism), and its current text selection, if any. "
-                             "active_document_path/selection are both null when no IDE extension is currently "
-                             "reporting state -- that's the normal condition when no IDE is connected, not an "
-                             "error. Use this to bias where you look next toward what the user is actually "
-                             "looking at right now."},
+            {"description", "The file currently focused in a connected IDE extension and its selection, or null for "
+                             "both when no IDE is reporting (normal, not an error). Use to bias where you look next."},
             {"inputSchema", Json{{"type", "object"}, {"properties", Json::object()}}},
         });
     }
