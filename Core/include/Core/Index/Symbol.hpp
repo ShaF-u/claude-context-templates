@@ -49,6 +49,11 @@ struct Symbol {
     // rules out. Always empty for Class/Struct/Namespace symbols (there
     // is no "type" of a type).
     std::string type_name;
+    // 1-based, inclusive last line of the whole declaration node (body
+    // included), so a caller holding the file's content can slice the
+    // definition out without re-parsing. 0 when unknown (hand-built
+    // Symbols in tests), in which case only `line` is trustworthy.
+    int end_line = 0;
 };
 
 } // namespace aistudio::core

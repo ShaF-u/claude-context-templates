@@ -76,16 +76,24 @@ Json ContextItemJson(const ContextItem& item) {
 }
 
 // Content-free stand-in for an item the budget couldn't fit; the content
-// comes from a follow-up context_fetch.
+// comes from a follow-up context_fetch. Only what that decision needs:
+// priority/compression were dropped from the stub (2026-09-18) after 31
+// stubs cost ~1200 tokens of a response whose budgeted content was 2000.
 Json OmittedContextItemJson(const ContextItem& item) {
     return Json{
         {"id", item.id},
         {"source", ToString(item.source)},
-        {"compression", ToString(item.compression)},
-        {"priority", item.priority},
         {"estimated_tokens", item.estimated_tokens},
         {"reason", "budget"},
     };
+}
+
+// A Reference-level item (an include edge "a.cpp->b.hpp", a keyword
+// line hit) IS its one line of content; stripped of it, the stub says
+// nothing a context_fetch could act on (its id isn't a file path
+// either). Everything else keeps a stub so the caller can fetch it.
+bool WorthAnOmittedStub(const ContextItem& item) {
+    return item.compression != CompressionLevel::Reference;
 }
 
 // docs/ROADMAP.md CE-4 sent ledger: content-free stand-in for an item
@@ -117,6 +125,69 @@ Json ContextItemJsonThroughLedger(const ContextItem& item, const McpServerOption
 // undercount every item by its JSON envelope and escaping.
 std::int64_t ResponseItemCost(const ContextItem& item) {
     return EstimateTokens(ContextItemJson(item).dump());
+}
+
+// The budgeted context_retrieve response as text instead of JSON. Same
+// selection, same ledger suppression, but no per-item envelope
+// (source/compression/priority/estimated_tokens fields) and no JSON
+// escaping of the code itself -- on this repository (2026-09-18) the JSON
+// form ran ~13.6k chars for a 3000-token budget, i.e. a third of what the
+// model received was quoting and field names. Selection and charging
+// still use ResponseItemCost() (the JSON entry's size), so the budget
+// semantics are unchanged; this form just sends fewer bytes for it.
+std::string PlainTextRetrieveResponse(const ContextSelection& selection,
+                                      const ContextRetriever::RetrievalTruncation& truncation,
+                                      const McpServerOptions& options) {
+    std::string out;
+    // Reference-level items (include edges, keyword line hits) are one
+    // line each and gain nothing from a heading of their own -- grouped
+    // into one section at the end instead of ~25 headings that each
+    // outweigh their line.
+    std::string references;
+    for (const auto& item : selection.included) {
+        const bool through_ledger = options.suppress_resent_content && options.sent_ledger != nullptr;
+        if (through_ledger) {
+            if (const auto check = options.sent_ledger->Check(item.id, item.content); check.unchanged) {
+                if (item.compression != CompressionLevel::Reference) {
+                    out += "## " + item.id + " (unchanged since #" + std::to_string(check.sent_at_ordinal) +
+                           ", use context_fetch to re-read)\n\n";
+                }
+                continue;
+            }
+            options.sent_ledger->RecordSent(item.id, item.content);
+        }
+        if (item.compression == CompressionLevel::Reference) {
+            references += "- " + item.content + "\n";
+            continue;
+        }
+        if (item.content.empty()) {
+            out += "## " + item.id + " (" + ToString(item.source) + ", ~" + std::to_string(item.estimated_tokens) +
+                   " tokens, not inlined; context_fetch by id if needed)\n\n";
+            continue;
+        }
+        out += "## " + item.id + "\n" + item.content;
+        if (out.back() != '\n') {
+            out += '\n';
+        }
+        out += '\n';
+    }
+    if (!references.empty()) {
+        out += "## related (includes / keyword hits)\n" + references + "\n";
+    }
+
+    std::string omitted;
+    for (const auto& item : selection.excluded) {
+        if (WorthAnOmittedStub(item)) {
+            omitted += "- " + item.id + " (~" + std::to_string(item.estimated_tokens) + " tokens)\n";
+        }
+    }
+    if (!omitted.empty()) {
+        out += "## omitted (over budget; context_fetch by id if needed)\n" + omitted + "\n";
+    }
+    if (truncation.symbol || truncation.file || truncation.keyword) {
+        out += "(more matches existed than returned: narrow the intent or use symbol_search)\n";
+    }
+    return out;
 }
 
 std::size_t ReadMaxResults(const Json& arguments, std::size_t fallback) {
@@ -285,6 +356,11 @@ Json AstNodeToJson(const AstNode& node) {
     return result;
 }
 
+bool ToolEnabled(const McpServerOptions& options, const std::string& name) {
+    return options.tool_allowlist.empty() ||
+           std::find(options.tool_allowlist.begin(), options.tool_allowlist.end(), name) != options.tool_allowlist.end();
+}
+
 Json ToolsList(const McpServerOptions& options) {
     Json tools = Json::array();
 
@@ -327,11 +403,11 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.context_retriever != nullptr) {
         tools.push_back(Json{
             {"name", "context_retrieve"},
-            {"description", "Given a free-text task description, returns the relevant symbols, files, dependencies and "
-                             "commits (ranked) instead of whole files. With a token budget, items that don't fit come "
-                             "back content-free in \"omitted\" (fetch by id with context_fetch). \"truncated\" "
-                             "{symbol,file,keyword} = true means more matches existed than returned: narrow the intent "
-                             "or use symbol_search/keyword_search."},
+            {"description", "Start here. Pass the whole task as intent (e.g. \"how symbol search is implemented\"); "
+                             "returns the SOURCE CODE of the best-matching function/class definitions (ranked), "
+                             "plus related files as ids. Usually enough to answer without further reads — cite the "
+                             "file:line ranges it gives. Only follow up with context_fetch for an id listed in "
+                             "\"omitted\" that you actually need."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -623,10 +699,22 @@ Json ToolsList(const McpServerOptions& options) {
         });
     }
 
+    if (!options.tool_allowlist.empty()) {
+        Json allowed = Json::array();
+        for (const auto& tool : tools) {
+            if (ToolEnabled(options, tool["name"].get<std::string>())) {
+                allowed.push_back(tool);
+            }
+        }
+        return allowed;
+    }
     return tools;
 }
 
 Json CallTool(const McpServerOptions& options, const std::string& name, const Json& arguments) {
+    if (!ToolEnabled(options, name)) {
+        return ToolError(name + " is not enabled on this server (see mcp.tools)");
+    }
     if (name == "symbol_search") {
         if (options.symbol_index == nullptr) {
             return ToolError("symbol_search is not available (no SymbolIndex configured)");
@@ -738,6 +826,10 @@ Json CallTool(const McpServerOptions& options, const std::string& name, const Js
                                                           ContextBudget(options.context_response_budget_tokens),
                                                           compressor, ContextItemCost(ResponseItemCost));
 
+        if (options.context_retrieve_plain_text) {
+            return TextContent(PlainTextRetrieveResponse(selection, truncation, options));
+        }
+
         // Sent-ledger suppression is applied after budget selection, not
         // folded into it: `used_tokens`/`budget` below still charge the
         // full item cost, so a caller can't be told it has more headroom
@@ -748,7 +840,9 @@ Json CallTool(const McpServerOptions& options, const std::string& name, const Js
         }
         Json omitted = Json::array();
         for (const auto& item : selection.excluded) {
-            omitted.push_back(OmittedContextItemJson(item));
+            if (WorthAnOmittedStub(item)) {
+                omitted.push_back(OmittedContextItemJson(item));
+            }
         }
 
         AISTUDIO_LOG_INFO("Core.MCP", "context_retrieve: intent='" + intent + "' included=" +

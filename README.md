@@ -29,6 +29,20 @@ cmake --build build --config Debug --target aistudio_core_cli
 `.mcp.json` に `context-reduction-core` として登録済み。プロジェクトルートでビルド後、
 Claude Codeがこのリポジトリを開けば接続候補として現れる（初回は承認が必要）。
 
+### 設定（`aistudio.config`）
+`--mcp` 起動時にカレントディレクトリの `aistudio.config`（`key=value`）を読む。
+**未設定だと `context_retrieve` は無予算・全ツール公開で動き、実測ではRead/Grepより
+コンテキストを食う**（`bench/README.md`）。他プロジェクトへCoreを持っていくときは
+このリポジトリの `aistudio.config` ごとコピーすること。主なキー:
+
+| キー | 効果 |
+|---|---|
+| `mcp.context_response_budget_tokens` | `context_retrieve` 1回の応答予算。上位の関数本体が収まる3000を推奨 |
+| `mcp.tools` | tools/list に出すツールを絞る。多いとモデルが1つの質問を複数ツールに分散してターン数が増える |
+| `mcp.context_retrieve_format=text` | 応答をJSONでなくテキストで返す（同内容で約4割小さい） |
+| `mcp.suppress_resent_content=true` | 同一セッションで既送信の項目を2回目以降はスタブにする |
+| `backend.core.project_rules.files=` | CLAUDE.md全文を応答に混ぜるのを止める（Claude Codeが既に読んでいるので重複） |
+
 ### 今後の方向性
 複数のClaude（セッション）を同時に動かす際、タスク状況を横断的に確認できるGUIを
 別途実装する構想がある（現時点では未着手）。

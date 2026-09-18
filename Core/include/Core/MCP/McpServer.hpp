@@ -18,6 +18,7 @@
 #include <istream>
 #include <ostream>
 #include <string>
+#include <vector>
 
 namespace aistudio::core {
 
@@ -91,6 +92,21 @@ struct McpServerOptions {
     // ContextItem::estimated_tokens -- see ResponseItemCost().
     // Opt-in via `mcp.context_response_budget_tokens`.
     std::int64_t context_response_budget_tokens = 0;
+    // When non-empty, only these tool names appear in tools/list and are
+    // callable; everything else is refused as if it did not exist. Empty
+    // (default) = every tool the wired-up sources support, the pre-existing
+    // behavior. Opt-in via `mcp.tools`. Exists because a model given 15
+    // tools spreads one question over five of them (measured 2026-09-18:
+    // symbol_search -> keyword_search -> context_fetch x3 for a task
+    // context_retrieve alone answered), and every extra turn re-sends the
+    // whole conversation.
+    std::vector<std::string> tool_allowlist;
+    // Budgeted context_retrieve responses as Markdown-ish text instead of
+    // the JSON document: same items, ~1/3 fewer bytes (no per-item
+    // envelope, no escaping of the code). false (default) keeps the JSON
+    // shape; has no effect when context_response_budget_tokens is 0.
+    // Opt-in via `mcp.context_retrieve_format=text`.
+    bool context_retrieve_plain_text = false;
     // Session-scoped dedup (docs/MASTER_SPEC.md #99, docs/ROADMAP.md
     // CE-4 "セッション既送信台帳"). false (default) preserves the exact
     // pre-existing response shape. When true and `sent_ledger` is set, a

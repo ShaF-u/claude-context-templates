@@ -218,6 +218,11 @@ int RunMcpMode() {
         }
     }
 
+    // Opt-in like the budget above: unset = every tool (see
+    // McpServerOptions::tool_allowlist for why a host would narrow it).
+    const auto tool_allowlist = SplitStringList(config.GetOr("mcp.tools", ""));
+    const bool context_retrieve_plain_text = config.GetOr("mcp.context_retrieve_format", "json") == "text";
+
     // Opt-in (docs/ROADMAP.md CE-4): default false preserves the exact
     // pre-existing response shape.
     const bool suppress_resent_content = config.GetOr("mcp.suppress_resent_content", "false") == "true";
@@ -396,6 +401,8 @@ int RunMcpMode() {
         .context_retriever = &context_retriever,
         .context_cache = &context_cache,
         .context_response_budget_tokens = context_response_budget_tokens,
+        .tool_allowlist = tool_allowlist,
+        .context_retrieve_plain_text = context_retrieve_plain_text,
         .suppress_resent_content = suppress_resent_content,
         .sent_ledger = suppress_resent_content ? &sent_ledger : nullptr,
         .include_graph = &include_graph,

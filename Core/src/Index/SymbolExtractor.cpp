@@ -184,6 +184,7 @@ void WalkNode(TSNode node, const std::string& file_path, const std::string& cont
               std::vector<Symbol>& symbols) {
     const std::string_view type(ts_node_type(node));
     const int line = static_cast<int>(ts_node_start_point(node).row) + 1;
+    const int end_line = static_cast<int>(ts_node_end_point(node).row) + 1;
 
     std::string class_for_children = current_class;
 
@@ -193,6 +194,7 @@ void WalkNode(TSNode node, const std::string& file_path, const std::string& cont
         if (!ts_node_is_null(name_node) && !ts_node_is_null(body_node)) {
             if (auto name = NodeText(name_node, content); !IsReservedKeyword(name)) {
                 Symbol symbol{std::move(name), SymbolKind::Namespace, file_path, line, Signature(node, body_node, content)};
+                symbol.end_line = end_line;
                 symbols.push_back(std::move(symbol));
             }
         }
@@ -210,6 +212,7 @@ void WalkNode(TSNode node, const std::string& file_path, const std::string& cont
                 class_for_children = name;
                 const auto kind = type == "class_specifier" ? SymbolKind::Class : SymbolKind::Struct;
                 Symbol symbol{std::move(name), kind, file_path, line, Signature(node, body_node, content)};
+                symbol.end_line = end_line;
                 symbols.push_back(std::move(symbol));
             }
         }
@@ -221,6 +224,7 @@ void WalkNode(TSNode node, const std::string& file_path, const std::string& cont
                 if (auto name = NodeText(*name_node, content); !IsReservedKeyword(name)) {
                     Symbol symbol{std::move(name), SymbolKind::Function, file_path, line,
                                    Signature(node, body_node, content), DeclaredTypeName(node, content)};
+                    symbol.end_line = end_line;
                     symbols.push_back(std::move(symbol));
                 }
             }
@@ -234,6 +238,7 @@ void WalkNode(TSNode node, const std::string& file_path, const std::string& cont
                 if (auto name = NodeText(*name_node, content); !IsReservedKeyword(name)) {
                     Symbol symbol{current_class + "::" + name, SymbolKind::Variable, file_path, line,
                                    VariableSignature(node, content), DeclaredTypeName(node, content)};
+                    symbol.end_line = end_line;
                     symbols.push_back(std::move(symbol));
                 }
             }
@@ -245,6 +250,7 @@ void WalkNode(TSNode node, const std::string& file_path, const std::string& cont
                 if (auto name = NodeText(*name_node, content); !IsReservedKeyword(name)) {
                     Symbol symbol{std::move(name), SymbolKind::Variable, file_path, line,
                                    VariableSignature(node, content), DeclaredTypeName(node, content)};
+                    symbol.end_line = end_line;
                     symbols.push_back(std::move(symbol));
                 }
             }

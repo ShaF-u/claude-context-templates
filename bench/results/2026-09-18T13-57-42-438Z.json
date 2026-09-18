@@ -1,0 +1,104 @@
+{
+  "ranAt": "2026-09-18T13:57:42.439Z",
+  "model": "default",
+  "results": [
+    {
+      "id": "symbol-search",
+      "intent": "how symbol search is implemented",
+      "naive": {
+        "contextTokens": 43924,
+        "outputTokens": 1823,
+        "costUsd": 0.1795425,
+        "subagentsSpawned": 0,
+        "numTurns": 9,
+        "sessionId": "d22e5339-2ae0-4520-babd-666d00038bc2",
+        "byModel": {
+          "claude-haiku-4-5-20251001": {
+            "contextTokens": 939,
+            "outputTokens": 11,
+            "costUsd": 0.0009939999999999999
+          },
+          "claude-opus-5": {
+            "contextTokens": 42985,
+            "outputTokens": 1812,
+            "costUsd": 0.1785485
+          }
+        }
+      },
+      "core": {
+        "contextTokens": 59498,
+        "outputTokens": 1706,
+        "costUsd": 0.20513350000000002,
+        "subagentsSpawned": 0,
+        "numTurns": 8,
+        "sessionId": "758c5528-d54a-42e7-b9b2-d7899bf979d2",
+        "byModel": {
+          "claude-haiku-4-5-20251001": {
+            "contextTokens": 939,
+            "outputTokens": 11,
+            "costUsd": 0.0009939999999999999
+          },
+          "claude-opus-5": {
+            "contextTokens": 58559,
+            "outputTokens": 1695,
+            "costUsd": 0.20413950000000003
+          }
+        }
+      },
+      "reductionPct": -35.456697932793006
+    },
+    {
+      "id": "context-selection-budget",
+      "intent": "how context items are ranked, compressed, and fit into a token budget",
+      "naive": {
+        "contextTokens": 176862,
+        "outputTokens": 2501,
+        "costUsd": 0.329237,
+        "subagentsSpawned": 0,
+        "numTurns": 11,
+        "sessionId": "0b880e0f-7d02-4693-9740-92986edf417d",
+        "byModel": {
+          "claude-haiku-4-5-20251001": {
+            "contextTokens": 948,
+            "outputTokens": 18,
+            "costUsd": 0.0010379999999999999
+          },
+          "claude-opus-5": {
+            "contextTokens": 175914,
+            "outputTokens": 2483,
+            "costUsd": 0.328199
+          }
+        }
+      },
+      "core": {
+        "contextTokens": 163101,
+        "outputTokens": 2500,
+        "costUsd": 0.4254495,
+        "subagentsSpawned": 0,
+        "numTurns": 18,
+        "sessionId": "573db3aa-cece-4f89-ad62-ecb34e829e56",
+        "byModel": {
+          "claude-haiku-4-5-20251001": {
+            "contextTokens": 948,
+            "outputTokens": 15,
+            "costUsd": 0.001023
+          },
+          "claude-opus-5": {
+            "contextTokens": 162153,
+            "outputTokens": 2485,
+            "costUsd": 0.4244265
+          }
+        }
+      },
+      "reductionPct": 7.780642534857685
+    }
+  ],
+  "stats": {
+    "avg": -13.838027698967661,
+    "median": -13.838027698967661,
+    "min": -35.456697932793006,
+    "max": 7.780642534857685,
+    "n": 2,
+    "totalCostUsd": 1.1393625
+  }
+}

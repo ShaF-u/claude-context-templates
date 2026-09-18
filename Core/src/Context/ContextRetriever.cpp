@@ -60,14 +60,27 @@ std::string ToLower(const std::string& text) {
 // Japanese sentence with no spaces at all, which matters in a codebase
 // (see this project's own CLAUDE.md) whose comments mix English
 // identifiers into Japanese prose with no separator between them.
-// Tokens shorter than 2 characters are dropped -- a single letter/digit
-// matches too broadly to be a useful signal in any of the three sources
-// below.
+// Tokens shorter than 3 characters and English function words are
+// dropped: measured on this repository (2026-09-18), "is"/"how"/"the"
+// from an ordinary "how X is implemented" intent substring-matched
+// aistudio.config, CMakeLists.txt and dozens of unrelated lines, and
+// those noise candidates then crowded real matches out of the response
+// budget.
+bool IsStopWord(const std::string& lower_token) {
+    static const std::unordered_set<std::string> kStopWords = {
+        "the", "and", "are", "was", "were", "been", "does", "did", "how", "what", "which", "where",
+        "when", "why", "who", "for", "from", "with", "into", "this", "that", "these", "those",
+        "its", "not", "you", "your", "please", "show", "here", "there", "explain", "about", "via",
+        "using", "way", "works", "implemented", "implementation", "codebase",
+    };
+    return kStopWords.count(lower_token) != 0;
+}
+
 std::vector<std::string> TokenizeIntent(const std::string& intent) {
     std::vector<std::string> tokens;
     std::string current;
     const auto flush = [&]() {
-        if (current.size() >= 2) {
+        if (current.size() >= 3 && !IsStopWord(ToLower(current))) {
             tokens.push_back(current);
         }
         current.clear();
@@ -87,6 +100,77 @@ std::vector<std::string> TokenizeIntent(const std::string& intent) {
 // 40 (substring) .. 105 (exact + case bonus) — see SymbolSearch.cpp.
 int SymbolPriority(int score) {
     return std::clamp(score * 8 / 10, 35, 85);
+}
+
+// See the Symbol retrieval block in Retrieve() for what these adjust.
+// The result is still clamped to the 35-85 Symbol tier, so the Active
+// File Bias arithmetic documented in the class comment is unchanged.
+constexpr int kMultiTokenBonus = 10;
+constexpr int kVariablePenalty = 15;
+
+// Backend Context Provider items are capped at this priority — see the
+// Backend retrieval block in Retrieve().
+constexpr int kBackendPriorityCap = 10;
+
+// A definition body longer than this is cut here, before ContextSelector
+// ever sees it: a 400-line class is not a better answer than its first
+// 120 lines plus a marker, and the head/tail cut ContextCompressor would
+// otherwise make on overflow drops the middle, which for code is the
+// part that matters.
+constexpr int kMaxBodyLines = 120;
+
+// Upgrades a signature-only Symbol item into one carrying the actual
+// definition (lines Symbol::line..Symbol::end_line of the file, from the
+// scan snapshot's in-memory contents). Without this, context_retrieve
+// was a table of contents: measured on this repository (2026-09-18) the
+// model followed every Symbol item with a context_fetch of the whole
+// file, paying for the manifest AND the file, and the "core" run cost
+// more context than plain Read/Grep did. Variables keep the signature
+// only (their "body" is the declaration already in the signature).
+void AttachDefinitionBody(ContextItem& item, const Symbol& symbol, FileCache& contents,
+                          const std::unordered_map<std::string, const FileMetadata*>& metadata_by_path) {
+    if (symbol.kind == SymbolKind::Variable || symbol.end_line < symbol.line || symbol.line <= 0) {
+        return;
+    }
+    const auto metadata_it = metadata_by_path.find(symbol.file_path);
+    if (metadata_it == metadata_by_path.end()) {
+        return;
+    }
+    const auto content = contents.Get(*metadata_it->second);
+    if (!content.has_value()) {
+        return;
+    }
+
+    std::string body;
+    int current_line = 1;
+    int emitted = 0;
+    std::size_t pos = 0;
+    while (pos <= content->size() && current_line <= symbol.end_line) {
+        const auto next = content->find('\n', pos);
+        const auto line_end = next == std::string::npos ? content->size() : next;
+        if (current_line >= symbol.line) {
+            if (emitted == kMaxBodyLines) {
+                body += "... [" + std::to_string(symbol.end_line - current_line + 1) + " more lines]\n";
+                break;
+            }
+            body.append(*content, pos, line_end - pos);
+            body += '\n';
+            ++emitted;
+        }
+        if (next == std::string::npos) {
+            break;
+        }
+        pos = next + 1;
+        ++current_line;
+    }
+    if (body.empty()) {
+        return;
+    }
+
+    item.content = ToString(symbol.kind) + " " + symbol.name + " (" + symbol.file_path + ":" +
+                   std::to_string(symbol.line) + "-" + std::to_string(symbol.end_line) + ")\n" + body;
+    item.compression = CompressionLevel::Raw;
+    item.estimated_tokens = EstimateTokens(item.content);
 }
 
 // Keyword match tiers land in 15-35 — see KeywordSearch.cpp for
@@ -263,43 +347,73 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
     // since a Backend is free to interpret free text however it likes.
     const auto intent_tokens = TokenizeIntent(intent);
 
+    // One scan serves Symbol bodies, File and Keyword retrieval below
+    // (they used to each scan the project independently), and with
+    // Options::cache_scan it serves later Retrieve() calls too.
+    // snapshot->contents is filled with each file's content as a side
+    // effect of the scan, so every read below comes from memory.
+    const auto snapshot = options_.project_root.empty() ? nullptr : ScanProject();
+    std::unordered_map<std::string, const FileMetadata*> metadata_by_path;
+    if (snapshot != nullptr) {
+        for (const auto& metadata : snapshot->files) {
+            metadata_by_path.emplace(metadata.path, &metadata);
+        }
+    }
+
     // Symbol retrieval: the strongest signal, so it runs first and
     // seeds `matched_files` for the coarser sources below to defer to.
     // Each token is searched independently and results are merged by
-    // symbol identity, keeping the best score any single token achieved
-    // -- the same per-source "best single match wins" heuristic File
-    // retrieval below already uses.
+    // symbol identity. Ranking = best single-token score, plus a bonus
+    // per additional distinct token the same symbol matched (a symbol
+    // named by two intent words is a better answer than one named by
+    // one: "symbol search" -> SymbolSearch over a field named `symbol`),
+    // minus a penalty for Variables (a field is rarely what "how does X
+    // work" is asking about, but its short name exact-matches easily).
     if (options_.symbol_index != nullptr) {
         const SymbolSearch search;
-        std::unordered_map<std::string, SymbolMatch> best_by_symbol;
+        struct MergedMatch {
+            SymbolMatch match;
+            int matched_tokens = 0;
+        };
+        std::unordered_map<std::string, MergedMatch> best_by_symbol;
         for (const auto& token : intent_tokens) {
             for (auto& match : search.Search(*options_.symbol_index, token, kNoPerTokenLimit)) {
                 const std::string key = match.symbol.file_path + '\x1f' + match.symbol.name;
-                auto [it, inserted] = best_by_symbol.try_emplace(key, match);
-                if (!inserted && match.score > it->second.score) {
-                    it->second = match;
+                auto [it, inserted] = best_by_symbol.try_emplace(key, MergedMatch{match, 1});
+                if (!inserted) {
+                    ++it->second.matched_tokens;
+                    if (match.score > it->second.match.score) {
+                        it->second.match = match;
+                    }
                 }
             }
         }
-        std::vector<SymbolMatch> merged;
+        std::vector<std::pair<int, SymbolMatch>> merged;
         merged.reserve(best_by_symbol.size());
-        for (auto& [key, match] : best_by_symbol) {
-            merged.push_back(std::move(match));
+        for (auto& [key, entry] : best_by_symbol) {
+            int priority = SymbolPriority(entry.match.score) + kMultiTokenBonus * (entry.matched_tokens - 1);
+            if (entry.match.symbol.kind == SymbolKind::Variable) {
+                priority -= kVariablePenalty;
+            }
+            merged.emplace_back(std::clamp(priority, 35, 85), std::move(entry.match));
         }
         std::stable_sort(merged.begin(), merged.end(),
-                          [](const SymbolMatch& a, const SymbolMatch& b) { return a.score > b.score; });
+                          [](const auto& a, const auto& b) { return a.first > b.first; });
         if (merged.size() > options_.max_symbol_matches) {
             merged.resize(options_.max_symbol_matches);
             if (truncation != nullptr) {
                 truncation->symbol = true;
             }
         }
-        for (const auto& match : merged) {
+        for (const auto& [priority, match] : merged) {
             if (!passes_firewall(match.symbol.file_path)) {
                 continue;
             }
-            add_item(MakeSymbolContextItem(match.symbol,
-                                            bias.Apply(SymbolPriority(match.score), match.symbol.file_path)));
+            auto item = MakeSymbolContextItem(match.symbol, bias.Apply(priority, match.symbol.file_path));
+            if (snapshot != nullptr) {
+                AttachDefinitionBody(item, match.symbol, snapshot->contents, metadata_by_path);
+            }
+            add_item(std::move(item));
             matched_files.insert(match.symbol.file_path);
         }
     }
@@ -317,12 +431,6 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         }
     }
 
-    // One scan serves both File and Keyword retrieval below (they used to
-    // each scan the project independently), and with Options::cache_scan
-    // it serves later Retrieve() calls too. snapshot->contents is filled
-    // with each file's content as a side effect of the scan, so Keyword
-    // retrieval's own file reads come from memory instead of disk.
-    const auto snapshot = options_.project_root.empty() ? nullptr : ScanProject();
     if (snapshot != nullptr) {
         // File retrieval: path/filename substring match, skipping files
         // a symbol match already covers more precisely. Each token is
@@ -417,12 +525,21 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
     // registered Backend gets a chance to contribute, native or Plugin
     // alike; IBackend::ProvideContext()'s own default returns nothing,
     // so a Backend that doesn't override it costs one empty-vector call.
+    // Ranked below every intent-matched tier above (Keyword's floor is
+    // 15): the built-in Backends' items are intent-independent bulk
+    // (ProjectRulesBackend sends the whole CLAUDE.md on every call at a
+    // constant 60; GitBackend sends up to 4000-char commit diffs at 50).
+    // Measured on this repository (2026-09-18), those two alone took 75%
+    // of a 2000-token response budget while the symbols that actually
+    // answered the intent were left as stubs. They still fill whatever
+    // budget the matched code leaves over.
     if (options_.backend_registry != nullptr) {
         for (const auto& backend : options_.backend_registry->All()) {
             for (auto& item : backend->ProvideContext(intent)) {
                 if (!passes_firewall(item.id)) {
                     continue;
                 }
+                item.priority = std::min(item.priority, kBackendPriorityCap);
                 add_item(std::move(item));
             }
         }
