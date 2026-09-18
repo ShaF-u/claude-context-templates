@@ -1,0 +1,132 @@
+{
+  "ranAt": "2026-09-18T07:51:20.299Z",
+  "results": [
+    {
+      "id": "symbol-search",
+      "intent": "how symbol search is implemented",
+      "naiveTokens": 126639,
+      "naiveFileCount": 20,
+      "coreTokens": 3263,
+      "reductionPct": 97.42338458136909
+    },
+    {
+      "id": "context-selection-budget",
+      "intent": "how context items are ranked, compressed, and fit into a token budget",
+      "naiveTokens": 59998,
+      "naiveFileCount": 26,
+      "coreTokens": 4121,
+      "reductionPct": 93.13143771459049
+    },
+    {
+      "id": "mcp-tool-dispatch",
+      "intent": "how the MCP server dispatches a tools/call request",
+      "naiveTokens": 134524,
+      "naiveFileCount": 26,
+      "coreTokens": 5101,
+      "reductionPct": 96.20811156373584
+    },
+    {
+      "id": "git-backend-commands",
+      "intent": "how git commit and stash commands are handled",
+      "naiveTokens": 182251,
+      "naiveFileCount": 31,
+      "coreTokens": 6251,
+      "reductionPct": 96.57011484161953
+    },
+    {
+      "id": "impact-analysis",
+      "intent": "how changing a file's impact on other files is analyzed",
+      "naiveTokens": 81278,
+      "naiveFileCount": 13,
+      "coreTokens": 2286,
+      "reductionPct": 97.18743079308054
+    },
+    {
+      "id": "database-migrations",
+      "intent": "how database schema migrations are applied",
+      "naiveTokens": 48223,
+      "naiveFileCount": 16,
+      "coreTokens": 2655,
+      "reductionPct": 94.49432843249072
+    },
+    {
+      "id": "event-bus-pubsub",
+      "intent": "how the event bus publish/subscribe mechanism works",
+      "naiveTokens": 150866,
+      "naiveFileCount": 42,
+      "coreTokens": 3131,
+      "reductionPct": 97.92464836344837
+    },
+    {
+      "id": "lsp-diagnostics",
+      "intent": "how the LSP server publishes diagnostics",
+      "naiveTokens": 91620,
+      "naiveFileCount": 10,
+      "coreTokens": 4006,
+      "reductionPct": 95.62759222877101
+    },
+    {
+      "id": "plugin-loading",
+      "intent": "how plugin DLLs are loaded and their manifests registered",
+      "naiveTokens": 75855,
+      "naiveFileCount": 26,
+      "coreTokens": 4116,
+      "reductionPct": 94.5738580185881
+    },
+    {
+      "id": "file-watcher-invalidation",
+      "intent": "how file changes invalidate indexes and caches",
+      "naiveTokens": 89057,
+      "naiveFileCount": 18,
+      "coreTokens": 3043,
+      "reductionPct": 96.58308723626442
+    },
+    {
+      "id": "security-sandbox",
+      "intent": "how the context firewall restricts access to files",
+      "naiveTokens": 188884,
+      "naiveFileCount": 34,
+      "coreTokens": 4750,
+      "reductionPct": 97.48522902945723
+    },
+    {
+      "id": "session-handoff",
+      "intent": "how a session handoff is resumed between CLI tools",
+      "naiveTokens": 13626,
+      "naiveFileCount": 12,
+      "coreTokens": 3364,
+      "reductionPct": 75.31190371348892
+    },
+    {
+      "id": "task-executor-queue",
+      "intent": "how tasks are queued and executed",
+      "naiveTokens": 18815,
+      "naiveFileCount": 14,
+      "coreTokens": 3307,
+      "reductionPct": 82.42359819293117
+    },
+    {
+      "id": "ast-index-extraction",
+      "intent": "how the AST index is built and structural outlines extracted",
+      "naiveTokens": 113863,
+      "naiveFileCount": 27,
+      "coreTokens": 3953,
+      "reductionPct": 96.52828399040952
+    },
+    {
+      "id": "context-cache-invalidation",
+      "intent": "how the context cache memoizes and invalidates retrieval results",
+      "naiveTokens": 46972,
+      "naiveFileCount": 9,
+      "coreTokens": 3519,
+      "reductionPct": 92.5083028187005
+    }
+  ],
+  "stats": {
+    "avg": 93.59875410126304,
+    "median": 96.20811156373584,
+    "min": 75.31190371348892,
+    "max": 97.92464836344837,
+    "n": 15
+  }
+}

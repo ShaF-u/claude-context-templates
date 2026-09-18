@@ -1,0 +1,46 @@
+{
+  "ranAt": "2026-09-18T07:45:17.208Z",
+  "results": [
+    {
+      "id": "symbol-search",
+      "intent": "how symbol search is implemented",
+      "naiveTokens": 126639,
+      "naiveFileCount": 20,
+      "coreTokens": 2663,
+      "reductionPct": 97.89717227710263
+    },
+    {
+      "id": "context-selection-budget",
+      "intent": "how context items are ranked, compressed, and fit into a token budget",
+      "naiveTokens": 59998,
+      "naiveFileCount": 26,
+      "coreTokens": 3331,
+      "reductionPct": 94.44814827160906
+    },
+    {
+      "id": "mcp-tool-dispatch",
+      "intent": "how the MCP server dispatches a tools/call request",
+      "naiveTokens": 134524,
+      "naiveFileCount": 26,
+      "coreTokens": 4111,
+      "reductionPct": 96.94403972525349
+    },
+    {
+      "id": "git-backend-commands",
+      "intent": "how git commit and stash commands are handled",
+      "naiveTokens": 182251,
+      "naiveFileCount": 31,
+      "coreTokens": 5262,
+      "reductionPct": 97.11277304376931
+    },
+    {
+      "id": "impact-analysis",
+      "intent": "how changing a file's impact on other files is analyzed",
+      "naiveTokens": 81278,
+      "naiveFileCount": 13,
+      "coreTokens": 2272,
+      "reductionPct": 97.20465562636876
+    }
+  ],
+  "averageReductionPct": 96.72135778882065
+}

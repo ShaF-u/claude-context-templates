@@ -1,0 +1,77 @@
+[
+  {
+    "id": "symbol-search",
+    "intent": "how symbol search is implemented",
+    "keywords": ["SymbolSearch", "symbol_search"]
+  },
+  {
+    "id": "context-selection-budget",
+    "intent": "how context items are ranked, compressed, and fit into a token budget",
+    "keywords": ["ContextBudget", "ContextCompressor", "ContextSelector"]
+  },
+  {
+    "id": "mcp-tool-dispatch",
+    "intent": "how the MCP server dispatches a tools/call request",
+    "keywords": ["McpServer", "tools/call"]
+  },
+  {
+    "id": "git-backend-commands",
+    "intent": "how git commit and stash commands are handled",
+    "keywords": ["GitBackend", "git.commit", "git.stash"]
+  },
+  {
+    "id": "impact-analysis",
+    "intent": "how changing a file's impact on other files is analyzed",
+    "keywords": ["ImpactAnalyzer", "impact_analysis"]
+  },
+  {
+    "id": "database-migrations",
+    "intent": "how database schema migrations are applied",
+    "keywords": ["Migrator", "Migration"]
+  },
+  {
+    "id": "event-bus-pubsub",
+    "intent": "how the event bus publish/subscribe mechanism works",
+    "keywords": ["EventBus", "Subscribe", "Publish"]
+  },
+  {
+    "id": "lsp-diagnostics",
+    "intent": "how the LSP server publishes diagnostics",
+    "keywords": ["LspServer", "publishDiagnostics"]
+  },
+  {
+    "id": "plugin-loading",
+    "intent": "how plugin DLLs are loaded and their manifests registered",
+    "keywords": ["PluginLoader", "PluginRegistry", "PluginManifest"]
+  },
+  {
+    "id": "file-watcher-invalidation",
+    "intent": "how file changes invalidate indexes and caches",
+    "keywords": ["FileWatcher", "FileChanged"]
+  },
+  {
+    "id": "security-sandbox",
+    "intent": "how the context firewall restricts access to files",
+    "keywords": ["Sandbox", "IsAllowed"]
+  },
+  {
+    "id": "session-handoff",
+    "intent": "how a session handoff is resumed between CLI tools",
+    "keywords": ["HandoffResumeOrchestrator", "HandoffRecord"]
+  },
+  {
+    "id": "task-executor-queue",
+    "intent": "how tasks are queued and executed",
+    "keywords": ["TaskExecutor", "TaskQueue"]
+  },
+  {
+    "id": "ast-index-extraction",
+    "intent": "how the AST index is built and structural outlines extracted",
+    "keywords": ["AstIndex", "AstExtractor"]
+  },
+  {
+    "id": "context-cache-invalidation",
+    "intent": "how the context cache memoizes and invalidates retrieval results",
+    "keywords": ["ContextCache", "InvalidateAll"]
+  }
+]
