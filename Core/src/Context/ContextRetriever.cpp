@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <filesystem>
 #include <limits>
 #include <optional>
@@ -71,16 +72,62 @@ bool IsStopWord(const std::string& lower_token) {
         "the", "and", "are", "was", "were", "been", "does", "did", "how", "what", "which", "where",
         "when", "why", "who", "for", "from", "with", "into", "this", "that", "these", "those",
         "its", "not", "you", "your", "please", "show", "here", "there", "explain", "about", "via",
-        "using", "way", "works", "implemented", "implementation", "codebase",
+        "using", "way", "works", "implemented", "implementation", "codebase", "cpp", "hpp",
     };
     return kStopWords.count(lower_token) != 0;
+}
+
+// Something the author typed as a name rather than a word: an inner
+// capital (CamelCase), an underscore, or a digit. "IsAllowed" and
+// "symbol_search" qualify; "firewall" and "restricting" do not.
+bool LooksLikeIdentifier(const std::string& token) {
+    for (std::size_t i = 1; i < token.size(); ++i) {
+        const unsigned char c = static_cast<unsigned char>(token[i]);
+        if (std::isupper(c) != 0 || std::isdigit(c) != 0 || c == '_') {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Every token is tried against every source, so a long intent turns
+// into a wide net: measured on this repository (2026-09-18), a model
+// that missed once wrote a 12-word intent next, and the hits from its
+// plain-English words drowned the ones from the identifiers it named.
+// Identifier-looking tokens go first, then longer words, and only the
+// top kMaxIntentTokens are used.
+constexpr std::size_t kMaxIntentTokens = 6;
+
+// The token plus rough English stems of it, for symbol-name matching:
+// SymbolSearch is a substring match, and a plural or inflected intent
+// word is LONGER than the identifier it means ("migrations" never occurs
+// inside "Migrator" or "Migration"; "migrat" occurs in both). Only
+// suffixes that leave a stem of 4+ characters, so short words stay as
+// typed. Deliberately not a real stemmer -- identifiers are not prose.
+std::vector<std::string> StemVariants(const std::string& token) {
+    std::vector<std::string> variants{token};
+    static const char* const kSuffixes[] = {"ions", "ion", "ings", "ing", "ies", "ed", "es", "s"};
+    for (const char* suffix : kSuffixes) {
+        const std::string_view sv(suffix);
+        if (token.size() > sv.size() + 3 && token.compare(token.size() - sv.size(), sv.size(), sv) == 0) {
+            std::string stem = token.substr(0, token.size() - sv.size());
+            if (sv == "ies") {
+                stem += 'y';
+            }
+            if (std::find(variants.begin(), variants.end(), stem) == variants.end()) {
+                variants.push_back(std::move(stem));
+            }
+        }
+    }
+    return variants;
 }
 
 std::vector<std::string> TokenizeIntent(const std::string& intent) {
     std::vector<std::string> tokens;
     std::string current;
     const auto flush = [&]() {
-        if (current.size() >= 3 && !IsStopWord(ToLower(current))) {
+        if (current.size() >= 3 && !IsStopWord(ToLower(current)) &&
+            std::find(tokens.begin(), tokens.end(), current) == tokens.end()) {
             tokens.push_back(current);
         }
         current.clear();
@@ -93,6 +140,17 @@ std::vector<std::string> TokenizeIntent(const std::string& intent) {
         }
     }
     flush();
+    if (tokens.size() > kMaxIntentTokens) {
+        std::stable_sort(tokens.begin(), tokens.end(), [](const std::string& a, const std::string& b) {
+            const bool a_id = LooksLikeIdentifier(a);
+            const bool b_id = LooksLikeIdentifier(b);
+            if (a_id != b_id) {
+                return a_id;
+            }
+            return a.size() > b.size();
+        });
+        tokens.resize(kMaxIntentTokens);
+    }
     return tokens;
 }
 
@@ -107,6 +165,30 @@ int SymbolPriority(int score) {
 // File Bias arithmetic documented in the class comment is unchanged.
 constexpr int kMultiTokenBonus = 10;
 constexpr int kVariablePenalty = 15;
+
+// How much one intent token's symbol matches count, by how many symbols
+// it matched: a token that names a handful of symbols is a signal, one
+// that names a hundred is a prefix. Measured on this repository
+// (2026-09-18), "context firewall" spent all five Symbol slots on
+// Context* classes ("context" is this project's most common prefix) and
+// never reached the one class "firewall" was about. 1.0 up to
+// kSpecificTokenMatches matches, then falls off logarithmically to a
+// floor -- never to zero, so a generic token still breaks ties.
+constexpr std::size_t kSpecificTokenMatches = 5;
+constexpr double kGenericTokenFloor = 0.3;
+
+double TokenSpecificity(std::size_t match_count) {
+    if (match_count <= kSpecificTokenMatches) {
+        return 1.0;
+    }
+    const double excess = std::log2(static_cast<double>(match_count) / static_cast<double>(kSpecificTokenMatches));
+    return std::max(kGenericTokenFloor, 1.0 - 0.15 * excess);
+}
+
+// A class/namespace body is its member list: the first lines carry the
+// API and the rest is detail, so it gets a shorter cap than a function
+// (kMaxBodyLines), whose logic can sit anywhere in it.
+constexpr int kMaxClassBodyLines = 40;
 
 // Backend Context Provider items are capped at this priority — see the
 // Backend retrieval block in Retrieve().
@@ -127,34 +209,30 @@ constexpr int kMaxBodyLines = 120;
 // file, paying for the manifest AND the file, and the "core" run cost
 // more context than plain Read/Grep did. Variables keep the signature
 // only (their "body" is the declaration already in the signature).
-void AttachDefinitionBody(ContextItem& item, const Symbol& symbol, FileCache& contents,
-                          const std::unordered_map<std::string, const FileMetadata*>& metadata_by_path) {
-    if (symbol.kind == SymbolKind::Variable || symbol.end_line < symbol.line || symbol.line <= 0) {
-        return;
-    }
-    const auto metadata_it = metadata_by_path.find(symbol.file_path);
-    if (metadata_it == metadata_by_path.end()) {
-        return;
-    }
-    const auto content = contents.Get(*metadata_it->second);
-    if (!content.has_value()) {
-        return;
-    }
+// Lines first_line..last_line (1-based, inclusive) of `content`, each
+// with its trailing newline; at most `max_lines`, then a marker with the
+// count left out. Empty if the range is off the end of the file.
+struct LineSlice {
+    std::string text;
+    bool cut = false;
+};
 
-    std::string body;
+LineSlice SliceLines(const std::string& content, int first_line, int last_line, int max_lines) {
+    LineSlice slice;
     int current_line = 1;
     int emitted = 0;
     std::size_t pos = 0;
-    while (pos <= content->size() && current_line <= symbol.end_line) {
-        const auto next = content->find('\n', pos);
-        const auto line_end = next == std::string::npos ? content->size() : next;
-        if (current_line >= symbol.line) {
-            if (emitted == kMaxBodyLines) {
-                body += "... [" + std::to_string(symbol.end_line - current_line + 1) + " more lines]\n";
+    while (pos <= content.size() && current_line <= last_line) {
+        const auto next = content.find('\n', pos);
+        const auto line_end = next == std::string::npos ? content.size() : next;
+        if (current_line >= first_line) {
+            if (emitted == max_lines) {
+                slice.text += "... [" + std::to_string(last_line - current_line + 1) + " more lines]\n";
+                slice.cut = true;
                 break;
             }
-            body.append(*content, pos, line_end - pos);
-            body += '\n';
+            slice.text.append(content, pos, line_end - pos);
+            slice.text += '\n';
             ++emitted;
         }
         if (next == std::string::npos) {
@@ -163,14 +241,70 @@ void AttachDefinitionBody(ContextItem& item, const Symbol& symbol, FileCache& co
         pos = next + 1;
         ++current_line;
     }
-    if (body.empty()) {
-        return;
+    return slice;
+}
+
+std::optional<std::string> FileContent(const std::string& file_path, FileCache& contents,
+                                       const std::unordered_map<std::string, const FileMetadata*>& metadata_by_path) {
+    const auto metadata_it = metadata_by_path.find(file_path);
+    if (metadata_it == metadata_by_path.end()) {
+        return std::nullopt;
+    }
+    return contents.Get(*metadata_it->second);
+}
+
+// Returns true when the WHOLE definition went in -- a keyword hit inside
+// that range is then already visible and needs no snippet of its own.
+// False when nothing was attached or the body was cut at kMaxBodyLines
+// (the part after the cut is exactly where a keyword hit in a 1000-line
+// function tends to be).
+bool AttachDefinitionBody(ContextItem& item, const Symbol& symbol, FileCache& contents,
+                          const std::unordered_map<std::string, const FileMetadata*>& metadata_by_path) {
+    if (symbol.kind == SymbolKind::Variable || symbol.end_line < symbol.line || symbol.line <= 0) {
+        return false;
+    }
+    const auto content = FileContent(symbol.file_path, contents, metadata_by_path);
+    if (!content.has_value()) {
+        return false;
+    }
+    const int max_lines = symbol.kind == SymbolKind::Function ? kMaxBodyLines : kMaxClassBodyLines;
+    const auto body = SliceLines(*content, symbol.line, symbol.end_line, max_lines);
+    if (body.text.empty()) {
+        return false;
     }
 
     item.content = ToString(symbol.kind) + " " + symbol.name + " (" + symbol.file_path + ":" +
-                   std::to_string(symbol.line) + "-" + std::to_string(symbol.end_line) + ")\n" + body;
+                   std::to_string(symbol.line) + "-" + std::to_string(symbol.end_line) + ")\n" + body.text;
     item.compression = CompressionLevel::Raw;
     item.estimated_tokens = EstimateTokens(item.content);
+    return !body.cut;
+}
+
+// A definition whose full body was sent, so keyword hits inside it are
+// redundant.
+struct CoveredRange {
+    std::string file_path;
+    int first_line = 0;
+    int last_line = 0;
+};
+
+// Keyword hits come back as a window of source around the line, not the
+// line alone: measured on this repository (2026-09-18), the answer to
+// "where does X get checked" sat inside a 1000-line dispatch function,
+// which no Symbol item can carry whole, and a bare "file:line: text" hit
+// left the model fetching line ranges by trial and error (20 tool calls
+// for one question). Hits in the same file closer than a window apart
+// merge into one snippet so the same lines are never sent twice.
+constexpr int kKeywordWindowLines = 6;
+
+// Test sources match almost any identifier the intent names (every test
+// spells the thing under test out), but for "how does X work" they are
+// the least informative hit -- ranked below the same hit in real source.
+constexpr int kTestFilePenalty = 10;
+
+bool LooksLikeTestFile(const std::string& path) {
+    return path.find("/tests/") != std::string::npos || path.find("/test/") != std::string::npos ||
+           path.find("test_") != std::string::npos;
 }
 
 // Keyword match tiers land in 15-35 — see KeywordSearch.cpp for
@@ -324,6 +458,7 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
 
     std::unordered_set<std::string> seen_ids;
     std::unordered_set<std::string> matched_files;
+    std::vector<CoveredRange> covered;
     const auto add_item = [&](ContextItem item) {
         if (seen_ids.insert(item.id).second) {
             items.push_back(std::move(item));
@@ -377,8 +512,22 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         };
         std::unordered_map<std::string, MergedMatch> best_by_symbol;
         for (const auto& token : intent_tokens) {
-            for (auto& match : search.Search(*options_.symbol_index, token, kNoPerTokenLimit)) {
-                const std::string key = match.symbol.file_path + '\x1f' + match.symbol.name;
+            // One token's variants (see StemVariants) pool into one result
+            // set, so "migrations" counts as a single matched token for the
+            // multi-token bonus whichever spelling hit.
+            std::unordered_map<std::string, SymbolMatch> token_best;
+            for (const auto& variant : StemVariants(token)) {
+                for (auto& match : search.Search(*options_.symbol_index, variant, kNoPerTokenLimit)) {
+                    const std::string key = match.symbol.file_path + '\x1f' + match.symbol.name;
+                    auto [it, inserted] = token_best.try_emplace(key, match);
+                    if (!inserted && match.score > it->second.score) {
+                        it->second = match;
+                    }
+                }
+            }
+            const double weight = TokenSpecificity(token_best.size());
+            for (auto& [key, match] : token_best) {
+                match.score = static_cast<int>(match.score * weight);
                 auto [it, inserted] = best_by_symbol.try_emplace(key, MergedMatch{match, 1});
                 if (!inserted) {
                     ++it->second.matched_tokens;
@@ -388,12 +537,39 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 }
             }
         }
+        // A matched Variable's declared type is usually what the intent was
+        // really about ("firewall" -> the five `const Sandbox* firewall`
+        // options, but the answer is class Sandbox). Symbol::type_name was
+        // captured for exactly this resolution; the type's definition joins
+        // the pool at the variable's own score so it competes on equal
+        // terms and, being a Class, wins the tie the Variable penalty
+        // creates below.
+        for (const auto& [key, entry] : std::vector<std::pair<std::string, MergedMatch>>(best_by_symbol.begin(),
+                                                                                          best_by_symbol.end())) {
+            if (entry.match.symbol.kind != SymbolKind::Variable || entry.match.symbol.type_name.empty()) {
+                continue;
+            }
+            for (const auto& type_symbol : options_.symbol_index->FindByName(entry.match.symbol.type_name)) {
+                if (type_symbol.kind == SymbolKind::Variable) {
+                    continue;
+                }
+                const std::string type_key = type_symbol.file_path + '\x1f' + type_symbol.name;
+                auto [it, inserted] = best_by_symbol.try_emplace(
+                    type_key, MergedMatch{SymbolMatch{type_symbol, entry.match.score}, entry.matched_tokens});
+                if (!inserted && entry.match.score > it->second.match.score) {
+                    it->second.match.score = entry.match.score;
+                }
+            }
+        }
         std::vector<std::pair<int, SymbolMatch>> merged;
         merged.reserve(best_by_symbol.size());
         for (auto& [key, entry] : best_by_symbol) {
             int priority = SymbolPriority(entry.match.score) + kMultiTokenBonus * (entry.matched_tokens - 1);
             if (entry.match.symbol.kind == SymbolKind::Variable) {
                 priority -= kVariablePenalty;
+            }
+            if (LooksLikeTestFile(entry.match.symbol.file_path)) {
+                priority -= kTestFilePenalty;
             }
             merged.emplace_back(std::clamp(priority, 35, 85), std::move(entry.match));
         }
@@ -410,8 +586,9 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 continue;
             }
             auto item = MakeSymbolContextItem(match.symbol, bias.Apply(priority, match.symbol.file_path));
-            if (snapshot != nullptr) {
-                AttachDefinitionBody(item, match.symbol, snapshot->contents, metadata_by_path);
+            if (snapshot != nullptr &&
+                AttachDefinitionBody(item, match.symbol, snapshot->contents, metadata_by_path)) {
+                covered.push_back({match.symbol.file_path, match.symbol.line, match.symbol.end_line});
             }
             add_item(std::move(item));
             matched_files.insert(match.symbol.file_path);
@@ -504,19 +681,67 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                     truncation->keyword = true;
                 }
             }
-            for (const auto& match : merged) {
-                if (matched_files.count(match.file_path) != 0 || !passes_firewall(match.file_path)) {
+            // A hit inside a definition whose whole body already went in
+            // is redundant; a hit elsewhere in a matched file (past a body
+            // cut, or in a function no symbol matched) is not -- that is
+            // the "answer buried in a huge function" case, see
+            // kKeywordWindowLines.
+            const auto already_visible = [&](const KeywordMatch& match) {
+                return std::any_of(covered.begin(), covered.end(), [&](const CoveredRange& range) {
+                    return range.file_path == match.file_path &&
+                           match.line + kKeywordWindowLines >= range.first_line &&
+                           match.line - kKeywordWindowLines <= range.last_line;
+                });
+            };
+            std::vector<KeywordMatch> kept;
+            for (auto& match : merged) {
+                if (!passes_firewall(match.file_path) || already_visible(match)) {
                     continue;
                 }
+                kept.push_back(std::move(match));
+            }
+            // Group by file, in line order, so neighbouring hits merge.
+            std::stable_sort(kept.begin(), kept.end(), [](const KeywordMatch& a, const KeywordMatch& b) {
+                return a.file_path != b.file_path ? a.file_path < b.file_path : a.line < b.line;
+            });
+            for (std::size_t i = 0; i < kept.size();) {
+                const auto& first = kept[i];
+                int window_first = std::max(1, first.line - kKeywordWindowLines);
+                int window_last = first.line + kKeywordWindowLines;
+                int best_score = first.score;
+                std::size_t j = i + 1;
+                while (j < kept.size() && kept[j].file_path == first.file_path &&
+                       kept[j].line - kKeywordWindowLines <= window_last) {
+                    window_last = kept[j].line + kKeywordWindowLines;
+                    best_score = std::max(best_score, kept[j].score);
+                    ++j;
+                }
+
                 ContextItem item;
-                item.id = "keyword:" + match.file_path + ":" + std::to_string(match.line);
+                item.id = "keyword:" + first.file_path + ":" + std::to_string(first.line);
                 item.source = ContextSourceKind::Custom;
-                item.compression = CompressionLevel::Reference;
-                item.priority = bias.Apply(KeywordPriority(match.score), match.file_path);
-                item.content = match.file_path + ":" + std::to_string(match.line) + ": " + match.text;
+                int priority = KeywordPriority(best_score);
+                if (LooksLikeTestFile(first.file_path)) {
+                    priority = std::max(0, priority - kTestFilePenalty);
+                }
+                item.priority = bias.Apply(priority, first.file_path);
+                item.depends_on = {first.file_path};
+
+                const auto content = FileContent(first.file_path, snapshot->contents, metadata_by_path);
+                const auto snippet = content.has_value()
+                                         ? SliceLines(*content, window_first, window_last, kMaxBodyLines)
+                                         : LineSlice{};
+                if (snippet.text.empty()) {
+                    item.compression = CompressionLevel::Reference;
+                    item.content = first.file_path + ":" + std::to_string(first.line) + ": " + first.text;
+                } else {
+                    item.compression = CompressionLevel::Summary;
+                    item.content = first.file_path + ":" + std::to_string(window_first) + "-" +
+                                   std::to_string(window_last) + "\n" + snippet.text;
+                }
                 item.estimated_tokens = EstimateTokens(item.content);
-                item.depends_on = {match.file_path};
                 add_item(std::move(item));
+                i = j;
             }
         }
     }

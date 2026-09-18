@@ -403,11 +403,13 @@ Json ToolsList(const McpServerOptions& options) {
     if (options.context_retriever != nullptr) {
         tools.push_back(Json{
             {"name", "context_retrieve"},
-            {"description", "Start here. Pass the whole task as intent (e.g. \"how symbol search is implemented\"); "
-                             "returns the SOURCE CODE of the best-matching function/class definitions (ranked), "
-                             "plus related files as ids. Usually enough to answer without further reads — cite the "
-                             "file:line ranges it gives. Only follow up with context_fetch for an id listed in "
-                             "\"omitted\" that you actually need."},
+            {"description", "Start here. Pass the task as a SHORT intent of 2-6 words naming the concept or "
+                             "identifiers (e.g. \"symbol search ranking\"); returns the SOURCE CODE of the "
+                             "best-matching function/class definitions (ranked) and code windows around keyword "
+                             "hits, plus related files as ids. Usually enough to answer — cite the file:line "
+                             "ranges it gives. If it misses, do NOT write a longer intent: call symbol_search "
+                             "with one identifier instead. Only context_fetch an id from \"omitted\" you actually "
+                             "need."},
             {"inputSchema",
              Json{
                  {"type", "object"},
