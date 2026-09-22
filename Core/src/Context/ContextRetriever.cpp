@@ -779,6 +779,13 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 auto content = worth_inlining
                                    ? FileContent(entry.metadata->path, snapshot->contents, metadata_by_path)
                                    : std::nullopt;
+                if (content.has_value()) {
+                    // The whole file is in the response, so Keyword
+                    // retrieval below must not bill a window of it again
+                    // as a separate item -- unlike a symbol body, which
+                    // covers only its own lines (see CoveredRange).
+                    covered.push_back({entry.metadata->path, 1, std::numeric_limits<int>::max()});
+                }
                 add_item(content.has_value()
                              ? MakeFileContextItem(*entry.metadata, *std::move(content), entry.priority)
                              : MakeFileContextItem(*entry.metadata, entry.priority));
