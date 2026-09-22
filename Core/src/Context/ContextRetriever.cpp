@@ -245,6 +245,11 @@ constexpr int kMaxClassBodyLines = 40;
 // symbol matches that answer the intent directly.
 constexpr std::uint64_t kInlineFileMaxBytes = 6144;
 
+// ...and only when the match was on the file's NAME (FilePathScore 45 =
+// filename substring, 60 = exact) rather than on an enclosing directory
+// (25). See the File retrieval block in Retrieve().
+constexpr int kInlineFileMinPathScore = 45;
+
 // Backend Context Provider items are capped at this priority — see the
 // Backend retrieval block in Retrieve().
 constexpr int kBackendPriorityCap = 10;
@@ -722,7 +727,12 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         // tried independently against every file path, keeping the best
         // score any single token achieved (see TokenizeIntent's comment).
         {
-            std::vector<std::pair<int, const FileMetadata*>> scored;
+            struct ScoredFile {
+                int priority = 0;
+                int path_score = 0; // pre-bias FilePathScore: how the path matched
+                const FileMetadata* metadata = nullptr;
+            };
+            std::vector<ScoredFile> scored;
             for (const auto& metadata : snapshot->files) {
                 if (matched_files.count(metadata.path) != 0 || !passes_firewall(metadata.path)) {
                     continue;
@@ -733,11 +743,12 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                     best_score = std::max(best_score, FilePathScore(lowered, lower_token));
                 }
                 if (best_score > 0) {
-                    scored.emplace_back(bias.Apply(best_score + affinity_of(metadata.path), metadata.path), &metadata);
+                    scored.push_back({bias.Apply(best_score + affinity_of(metadata.path), metadata.path), best_score,
+                                      &metadata});
                 }
             }
             std::stable_sort(scored.begin(), scored.end(),
-                              [](const auto& a, const auto& b) { return a.first > b.first; });
+                              [](const ScoredFile& a, const ScoredFile& b) { return a.priority > b.priority; });
             if (scored.size() > options_.max_file_matches) {
                 scored.resize(options_.max_file_matches);
                 if (truncation != nullptr) {
@@ -754,12 +765,23 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
             // 18%. Paying a few hundred tokens to remove a turn is the
             // right trade; a big file is not (it would crowd out
             // everything else in the budget), so it still gets a stub.
-            for (const auto& [score, metadata] : scored) {
-                auto content = metadata->size <= kInlineFileMaxBytes
-                                   ? FileContent(metadata->path, snapshot->contents, metadata_by_path)
+            //
+            // Only files whose NAME matched an intent word are worth that
+            // trade (FilePathScore: 60 exact, 45 substring; 25 means only
+            // some earlier path segment matched, e.g. every file under
+            // Core/Context/ for the word "context"). Inlining those too
+            // spent 72% of one response on six files where two were the
+            // answer (measured 2026-09-22).
+            for (const auto& entry : scored) {
+                const bool worth_inlining = entry.path_score >= kInlineFileMinPathScore &&
+                                            entry.metadata->size <= kInlineFileMaxBytes &&
+                                            !LooksLikeTestFile(entry.metadata->path);
+                auto content = worth_inlining
+                                   ? FileContent(entry.metadata->path, snapshot->contents, metadata_by_path)
                                    : std::nullopt;
-                add_item(content.has_value() ? MakeFileContextItem(*metadata, *std::move(content), score)
-                                             : MakeFileContextItem(*metadata, score));
+                add_item(content.has_value()
+                             ? MakeFileContextItem(*entry.metadata, *std::move(content), entry.priority)
+                             : MakeFileContextItem(*entry.metadata, entry.priority));
             }
         }
 

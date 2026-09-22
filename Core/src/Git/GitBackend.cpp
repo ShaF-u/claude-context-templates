@@ -553,8 +553,16 @@ std::vector<ContextItem> GitBackend::ProvideContext(const std::string& intent) c
     }
 
     std::unordered_set<std::string> seen_shas;
-    constexpr std::size_t kMaxCommits = 5;
-    constexpr std::size_t kMaxDiffChars = 4000;
+    // What a commit contributes to an intent is "this is where that
+    // changed", which its message and the shape of its diff already say.
+    // Five commits at 4000 characters could contribute 20 KB, and once
+    // the MCP response budget grew past that they did: a "how does the
+    // event bus work" retrieval spent most of its budget on four recent
+    // commits whose messages happened to share words with the intent
+    // (measured 2026-09-22). git_history/git_show remain for reading a
+    // commit in full.
+    constexpr std::size_t kMaxCommits = 2;
+    constexpr std::size_t kMaxDiffChars = 1000;
     int priority = 50;
     for (const auto& commit : matches) {
         if (items.size() >= kMaxCommits) {
