@@ -385,8 +385,9 @@ Json ToolsList(const McpServerOptions& options) {
     if (!options.project_root.empty()) {
         tools.push_back(Json{
             {"name", "keyword_search"},
-            {"description", "Case-insensitive substring search over every source line. Use symbol_search for "
-                             "identifiers; this for free text, comments, strings."},
+            {"description", "grep: case-insensitive substring search over every source line, returns file:line "
+                             "hits. Use this to find WHERE something is used/called/checked (one call instead of "
+                             "fetching files by guessed line ranges); symbol_search for a definition by name."},
             {"inputSchema",
              Json{
                  {"type", "object"},

@@ -1,0 +1,289 @@
+{
+  "ranAt": "2026-09-22T09:10:31.770Z",
+  "model": "default",
+  "complete": true,
+  "results": [
+    {
+      "id": "mcp-tool-dispatch",
+      "intent": "how the MCP server dispatches a tools/call request",
+      "naive": {
+        "contextTokens": 47594,
+        "outputTokens": 1442,
+        "costUsd": 0.185368,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "8680855f-a2e6-4078-bbac-03d15b87fc21",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 47594,
+            "outputTokens": 1442,
+            "costUsd": 0.185368
+          }
+        },
+        "finalContextTokens": 11675,
+        "baseContextTokens": 7539,
+        "toolCalls": 6
+      },
+      "core": {
+        "contextTokens": 101440,
+        "outputTokens": 1803,
+        "costUsd": 0.258336,
+        "subagentsSpawned": 0,
+        "numTurns": 8,
+        "sessionId": "386945de-8760-4545-aaea-acb476e1c328",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 101440,
+            "outputTokens": 1803,
+            "costUsd": 0.258336
+          }
+        },
+        "finalContextTokens": 17104,
+        "baseContextTokens": 6165,
+        "toolCalls": 7
+      },
+      "reductionPct": -113.13610959364624,
+      "finalReductionPct": -46.501070663811575,
+      "explorationReductionPct": -164.48259187620891
+    },
+    {
+      "id": "git-backend-commands",
+      "intent": "how git commit and stash commands are handled",
+      "naive": {
+        "contextTokens": 82152,
+        "outputTokens": 1503,
+        "costUsd": 0.25,
+        "subagentsSpawned": 0,
+        "numTurns": 5,
+        "sessionId": "e5dba6ba-3673-427e-bd33-a607156bdf50",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 82152,
+            "outputTokens": 1503,
+            "costUsd": 0.25
+          }
+        },
+        "finalContextTokens": 23748,
+        "baseContextTokens": 7562,
+        "toolCalls": 4
+      },
+      "core": {
+        "contextTokens": 63654,
+        "outputTokens": 1515,
+        "costUsd": 0.20584399999999997,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "09bbb7ad-6e57-4acb-b21b-c050e5a20a4f",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 63654,
+            "outputTokens": 1515,
+            "costUsd": 0.20584399999999997
+          }
+        },
+        "finalContextTokens": 18667,
+        "baseContextTokens": 6187,
+        "toolCalls": 6
+      },
+      "reductionPct": 22.51679813029507,
+      "finalReductionPct": 21.395485935657742,
+      "explorationReductionPct": 22.896330161868285
+    },
+    {
+      "id": "database-migrations",
+      "intent": "how database schema migrations are applied",
+      "naive": {
+        "contextTokens": 85159,
+        "outputTokens": 1442,
+        "costUsd": 0.23702999999999996,
+        "subagentsSpawned": 0,
+        "numTurns": 5,
+        "sessionId": "a2ccee59-1fdc-45eb-85d9-0dd347ae9ebd",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 85159,
+            "outputTokens": 1442,
+            "costUsd": 0.23702999999999996
+          }
+        },
+        "finalContextTokens": 22385,
+        "baseContextTokens": 7560,
+        "toolCalls": 4
+      },
+      "core": {
+        "contextTokens": 118586,
+        "outputTokens": 1733,
+        "costUsd": 0.3199745,
+        "subagentsSpawned": 0,
+        "numTurns": 9,
+        "sessionId": "8ffdcd94-095e-4e54-93b4-216249db814e",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 118586,
+            "outputTokens": 1733,
+            "costUsd": 0.3199745
+          }
+        },
+        "finalContextTokens": 27214,
+        "baseContextTokens": 6185,
+        "toolCalls": 8
+      },
+      "reductionPct": -39.25245716835566,
+      "finalReductionPct": -21.57248157248157,
+      "explorationReductionPct": -41.848229342327144
+    },
+    {
+      "id": "event-bus-pubsub",
+      "intent": "how the event bus publish/subscribe mechanism works",
+      "naive": {
+        "contextTokens": 61402,
+        "outputTokens": 1317,
+        "costUsd": 0.1322605,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "06b83d0c-5af7-41e2-ac17-a48f8a550a8e",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 61402,
+            "outputTokens": 1317,
+            "costUsd": 0.1322605
+          }
+        },
+        "finalContextTokens": 12935,
+        "baseContextTokens": 7567,
+        "toolCalls": 5
+      },
+      "core": {
+        "contextTokens": 15985,
+        "outputTokens": 799,
+        "costUsd": 0.0797795,
+        "subagentsSpawned": 0,
+        "numTurns": 2,
+        "sessionId": "eb31a0c2-e769-49bf-ab86-d8be061626c6",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 15985,
+            "outputTokens": 799,
+            "costUsd": 0.0797795
+          }
+        },
+        "finalContextTokens": 9793,
+        "baseContextTokens": 6192,
+        "toolCalls": 1
+      },
+      "reductionPct": 73.96664603758836,
+      "finalReductionPct": 24.29068419018168,
+      "explorationReductionPct": 32.917287630402384
+    },
+    {
+      "id": "security-sandbox",
+      "intent": "how the context firewall restricts access to files",
+      "naive": {
+        "contextTokens": 136344,
+        "outputTokens": 1854,
+        "costUsd": 0.268408,
+        "subagentsSpawned": 0,
+        "numTurns": 9,
+        "sessionId": "b40451c6-5106-473d-bc7b-806d25d6b679",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 136344,
+            "outputTokens": 1854,
+            "costUsd": 0.268408
+          }
+        },
+        "finalContextTokens": 21906,
+        "baseContextTokens": 7562,
+        "toolCalls": 8
+      },
+      "core": {
+        "contextTokens": 343871,
+        "outputTokens": 3430,
+        "costUsd": 0.6062719999999999,
+        "subagentsSpawned": 0,
+        "numTurns": 21,
+        "sessionId": "adffb1c2-32c3-40b8-8e55-6783d5e731ee",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 343871,
+            "outputTokens": 3430,
+            "costUsd": 0.6062719999999999
+          }
+        },
+        "finalContextTokens": 41022,
+        "baseContextTokens": 6187,
+        "toolCalls": 20
+      },
+      "reductionPct": -152.20838467405974,
+      "finalReductionPct": -87.26376335250616,
+      "explorationReductionPct": -142.8541550474066
+    },
+    {
+      "id": "session-handoff",
+      "intent": "how a session handoff is resumed between CLI tools",
+      "naive": {
+        "contextTokens": 58594,
+        "outputTokens": 2209,
+        "costUsd": 0.2226595,
+        "subagentsSpawned": 0,
+        "numTurns": 10,
+        "sessionId": "d6ae22ce-aa6f-4194-8c6f-40a8dee28509",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 58594,
+            "outputTokens": 2209,
+            "costUsd": 0.2226595
+          }
+        },
+        "finalContextTokens": 20253,
+        "baseContextTokens": 7566,
+        "toolCalls": 9
+      },
+      "core": {
+        "contextTokens": 40129,
+        "outputTokens": 1183,
+        "costUsd": 0.1260555,
+        "subagentsSpawned": 0,
+        "numTurns": 4,
+        "sessionId": "c9638c9e-d62f-4768-bc33-a37421e9de4a",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 40129,
+            "outputTokens": 1183,
+            "costUsd": 0.1260555
+          }
+        },
+        "finalContextTokens": 12381,
+        "baseContextTokens": 6191,
+        "toolCalls": 3
+      },
+      "reductionPct": 31.513465542547014,
+      "finalReductionPct": 38.86831580506591,
+      "explorationReductionPct": 51.20989989753291
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": -29.433340287605194,
+      "median": -8.367829519030296,
+      "min": -152.20838467405974,
+      "max": 73.96664603758836,
+      "n": 6
+    },
+    "final": {
+      "avg": -11.797138276315659,
+      "median": -0.08849781841191451,
+      "min": -87.26376335250616,
+      "max": 38.86831580506591,
+      "n": 6
+    },
+    "exploration": {
+      "avg": -40.36024309602319,
+      "median": -9.47594959022943,
+      "min": -164.48259187620891,
+      "max": 51.20989989753291,
+      "n": 6
+    },
+    "totalCostUsd": 2.8919874999999995
+  }
+}
