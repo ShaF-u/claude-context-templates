@@ -238,6 +238,13 @@ double TokenSpecificity(std::size_t match_count) {
 // (kMaxBodyLines), whose logic can sit anywhere in it.
 constexpr int kMaxClassBodyLines = 40;
 
+// A File item at or under this size is sent whole instead of as a
+// fetch-me stub -- see the File retrieval block in Retrieve(). ~6 KB is
+// a header or a small implementation file (~1.5k tokens), an amount the
+// response budget can absorb; anything larger would crowd out the
+// symbol matches that answer the intent directly.
+constexpr std::uint64_t kInlineFileMaxBytes = 6144;
+
 // Backend Context Provider items are capped at this priority — see the
 // Backend retrieval block in Retrieve().
 constexpr int kBackendPriorityCap = 10;
@@ -737,8 +744,22 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                     truncation->file = true;
                 }
             }
+            // Small files go in whole rather than as a fetch-me stub.
+            // A stub costs ~30 tokens and buys a follow-up context_fetch,
+            // and a follow-up costs a whole extra turn -- which re-sends
+            // the entire conversation so far (10-25k tokens by then).
+            // Measured across this repository's bench tasks (2026-09-22),
+            // reduction tracks tool-call count far more strongly than
+            // response size: the one-call task cut 74%, the nine-call one
+            // 18%. Paying a few hundred tokens to remove a turn is the
+            // right trade; a big file is not (it would crowd out
+            // everything else in the budget), so it still gets a stub.
             for (const auto& [score, metadata] : scored) {
-                add_item(MakeFileContextItem(*metadata, score));
+                auto content = metadata->size <= kInlineFileMaxBytes
+                                   ? FileContent(metadata->path, snapshot->contents, metadata_by_path)
+                                   : std::nullopt;
+                add_item(content.has_value() ? MakeFileContextItem(*metadata, *std::move(content), score)
+                                             : MakeFileContextItem(*metadata, score));
             }
         }
 
