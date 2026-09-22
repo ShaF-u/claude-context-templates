@@ -62,9 +62,13 @@ node bench/run.mjs
 トークン（cumulative合計）が目安。反復中は `BENCH_SAMPLE` で件数を絞ること:
 
 ```
-BENCH_SAMPLE=2 node bench/run.mjs        # 先頭2タスクだけ
-BENCH_MODEL=sonnet node bench/run.mjs    # モデルを固定して経時比較しやすくする
+BENCH_SAMPLE=2 node bench/run.mjs                              # 先頭2タスクだけ
+BENCH_TASKS=security-sandbox,database-migrations node bench/run.mjs  # idで指定
+BENCH_MODEL=sonnet node bench/run.mjs                          # モデルを固定して経時比較しやすくする
 ```
+
+結果JSONはタスクが1つ終わるごとに上書き保存される（`complete: false`）。利用枠の上限で
+`claude`がexit 1して途中で落ちても、そこまでの結果は残る。
 
 結果は標準出力の表と、`bench/results/<timestamp>.json` に両方残る（naive/coreそれぞれの
 `byModel`内訳・`toolCalls`・`sessionId`（transcriptを後から追える）も含む）。

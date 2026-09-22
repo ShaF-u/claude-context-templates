@@ -14,6 +14,7 @@ const tasksPath = path.join(__dirname, 'tasks.json');
 // model traffic, not a simulation. Cap how many tasks run per invocation so
 // iterating on the harness doesn't burn the whole suite by accident.
 const sample = Number(process.env.BENCH_SAMPLE) || Infinity;
+const onlyIds = process.env.BENCH_TASKS ? process.env.BENCH_TASKS.split(',').map((s) => s.trim()).filter(Boolean) : null;
 const model = process.env.BENCH_MODEL || undefined; // e.g. "sonnet" — pin for comparable runs across time
 
 if (!existsSync(cliPath)) {
@@ -23,7 +24,21 @@ if (!existsSync(cliPath)) {
 }
 
 const allTasks = JSON.parse(readFileSync(tasksPath, 'utf8'));
-const tasks = allTasks.slice(0, sample);
+const tasks = (onlyIds ? allTasks.filter((t) => onlyIds.includes(t.id)) : allTasks).slice(0, sample);
+
+// A run that dies halfway (the usual cause: the account's usage limit,
+// which makes `claude` exit 1) keeps every task it finished. Each pair is
+// appended to this file as soon as it completes, and the summary at the
+// end is written from the same file, so a partial run still leaves data.
+const outDir = path.join(__dirname, 'results');
+mkdirSync(outDir, { recursive: true });
+const runStamp = new Date().toISOString().replace(/[:.]/g, '-');
+const outFile = path.join(outDir, `${runStamp}.json`);
+const persist = (results, complete) =>
+  writeFileSync(
+    outFile,
+    JSON.stringify({ ranAt: new Date().toISOString(), model: model ?? 'default', complete, results, stats: summarize(results) }, null, 2)
+  );
 
 const NAIVE_TOOLS = 'Read,Grep,Glob';
 // "" disables every built-in tool, so the core run can only use what the
@@ -76,9 +91,27 @@ for (const task of tasks) {
     finalReductionPct: pct(naive.finalContextTokens, core.finalContextTokens),
     explorationReductionPct: pct(explore(naive), explore(core)),
   });
+  persist(results, false);
 }
 
 // ---- report ----
+function stats(values) {
+  const v = values.filter((x) => x !== null).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const avg = v.reduce((a, b) => a + b, 0) / v.length;
+  const median = v.length % 2 === 1 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
+  return { avg, median, min: v[0], max: v[v.length - 1], n: v.length };
+}
+
+function summarize(results) {
+  return {
+    cumulative: stats(results.map((r) => r.reductionPct)),
+    final: stats(results.map((r) => r.finalReductionPct)),
+    exploration: stats(results.map((r) => r.explorationReductionPct)),
+    totalCostUsd: results.reduce((sum, r) => sum + r.naive.costUsd + r.core.costUsd, 0),
+  };
+}
+
 const fmtPct = (v) => (v === null ? 'n/a' : `${v.toFixed(1)}%`);
 const header = ['task', 'naive cum/final/calls', 'core cum/final/calls', 'cum', 'final', 'explore'];
 const rows = results.map((r) => [
@@ -97,23 +130,12 @@ console.log(fmt(header));
 console.log(widths.map((w) => '-'.repeat(w)).join('  '));
 for (const row of rows) console.log(fmt(row));
 
-function stats(values) {
-  const v = values.filter((x) => x !== null).sort((a, b) => a - b);
-  if (!v.length) return null;
-  const avg = v.reduce((a, b) => a + b, 0) / v.length;
-  const median = v.length % 2 === 1 ? v[(v.length - 1) / 2] : (v[v.length / 2 - 1] + v[v.length / 2]) / 2;
-  return { avg, median, min: v[0], max: v[v.length - 1], n: v.length };
-}
 const describe = (label, s) =>
   s === null
     ? `${label}: n/a`
     : `${label} — avg: ${s.avg.toFixed(1)}%  median: ${s.median.toFixed(1)}%  min: ${s.min.toFixed(1)}%  max: ${s.max.toFixed(1)}%  (n=${s.n})`;
 
-const cumulative = stats(results.map((r) => r.reductionPct));
-const final = stats(results.map((r) => r.finalReductionPct));
-const exploration = stats(results.map((r) => r.explorationReductionPct));
-const totalCostUsd = results.reduce((sum, r) => sum + r.naive.costUsd + r.core.costUsd, 0);
-
+const { cumulative, final, exploration, totalCostUsd } = summarize(results);
 console.log('');
 console.log(describe('cumulative reduction ', cumulative));
 console.log(describe('final-context reduction', final));
@@ -123,12 +145,6 @@ if (exploration !== null) {
 }
 console.log(`plan usage this run (list-price equivalent): $${totalCostUsd.toFixed(3)}`);
 
-// ---- persist ----
-const outDir = path.join(__dirname, 'results');
-mkdirSync(outDir, { recursive: true });
-const outFile = path.join(outDir, `${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
-writeFileSync(
-  outFile,
-  JSON.stringify({ ranAt: new Date().toISOString(), model: model ?? 'default', results, stats: { cumulative, final, exploration, totalCostUsd } }, null, 2)
-);
-console.log(`\nsaved: ${path.relative(repoRoot, outFile)}`);
+persist(results, true);
+console.log(`
+saved: ${path.relative(repoRoot, outFile)}`);
