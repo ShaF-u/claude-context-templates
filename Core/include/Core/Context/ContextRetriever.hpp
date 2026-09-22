@@ -150,6 +150,13 @@ public:
         std::size_t max_symbol_matches = 5;
         std::size_t max_file_matches = 5;
         std::size_t max_keyword_matches = 10;
+        // Appended to FileScanner::DefaultIgnorePatterns() for the scan
+        // File/Keyword retrieval run on, so a host project's
+        // `scan.extra_ignore_patterns` excludes a path from retrieval the
+        // same way it already excludes it from the indexes -- until
+        // 2026-09-22 it only reached the indexes, and an excluded
+        // directory still came back from context_retrieve.
+        std::vector<std::string> extra_ignore_patterns;
         // When true, the FileScanner::Scan() File/Keyword retrieval share
         // (every file's metadata + content, read and hashed from disk) is
         // done once and reused by every later Retrieve() call until

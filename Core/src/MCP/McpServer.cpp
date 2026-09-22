@@ -714,441 +714,213 @@ Json ToolsList(const McpServerOptions& options) {
     return tools;
 }
 
-Json CallTool(const McpServerOptions& options, const std::string& name, const Json& arguments) {
-    if (!ToolEnabled(options, name)) {
-        return ToolError(name + " is not enabled on this server (see mcp.tools)");
+Json HandleSymbolSearch(const McpServerOptions& options, const Json& arguments) {
+    if (options.symbol_index == nullptr) {
+        return ToolError("symbol_search is not available (no SymbolIndex configured)");
     }
-    if (name == "symbol_search") {
-        if (options.symbol_index == nullptr) {
-            return ToolError("symbol_search is not available (no SymbolIndex configured)");
-        }
-        if (!arguments.contains("query") || !arguments["query"].is_string()) {
-            return ToolError("symbol_search requires a string 'query' argument");
-        }
-
-        const SymbolSearch search;
-        const auto matches =
-            search.Search(*options.symbol_index, arguments["query"].get<std::string>(), ReadMaxResults(arguments, 50));
-
-        Json list = Json::array();
-        for (const auto& match : matches) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(match.symbol.file_path)) {
-                continue;
-            }
-            list.push_back(Json{
-                {"name", match.symbol.name},
-                {"kind", ToString(match.symbol.kind)},
-                {"file_path", match.symbol.file_path},
-                {"line", match.symbol.line},
-                {"signature", match.symbol.signature},
-                {"score", match.score},
-            });
-        }
-        return TextContent(Json{{"matches", list}}.dump());
+    if (!arguments.contains("query") || !arguments["query"].is_string()) {
+        return ToolError("symbol_search requires a string 'query' argument");
     }
 
-    if (name == "keyword_search") {
-        if (options.project_root.empty()) {
-            return ToolError("keyword_search is not available (no project_root configured)");
-        }
-        if (!arguments.contains("query") || !arguments["query"].is_string()) {
-            return ToolError("keyword_search requires a string 'query' argument");
-        }
+    const SymbolSearch search;
+    const auto matches =
+        search.Search(*options.symbol_index, arguments["query"].get<std::string>(), ReadMaxResults(arguments, 50));
 
-        const KeywordSearch search;
-        const auto result =
-            search.Search(options.project_root, arguments["query"].get<std::string>(), ReadMaxResults(arguments, 200));
-        if (!result) {
-            return ToolError("keyword_search failed: " + result.Err().message);
+    Json list = Json::array();
+    for (const auto& match : matches) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(match.symbol.file_path)) {
+            continue;
         }
+        list.push_back(Json{
+            {"name", match.symbol.name},
+            {"kind", ToString(match.symbol.kind)},
+            {"file_path", match.symbol.file_path},
+            {"line", match.symbol.line},
+            {"signature", match.symbol.signature},
+            {"score", match.score},
+        });
+    }
+    return TextContent(Json{{"matches", list}}.dump());
+}
 
-        Json list = Json::array();
-        for (const auto& match : result.Value()) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(match.file_path)) {
-                continue;
-            }
-            list.push_back(Json{
-                {"file_path", match.file_path},
-                {"line", match.line},
-                {"text", match.text},
-                {"score", match.score},
-            });
-        }
-        return TextContent(Json{{"matches", list}}.dump());
+Json HandleKeywordSearch(const McpServerOptions& options, const Json& arguments) {
+    if (options.project_root.empty()) {
+        return ToolError("keyword_search is not available (no project_root configured)");
+    }
+    if (!arguments.contains("query") || !arguments["query"].is_string()) {
+        return ToolError("keyword_search requires a string 'query' argument");
     }
 
-    if (name == "context_retrieve") {
-        if (options.context_retriever == nullptr) {
-            return ToolError("context_retrieve is not available (no ContextRetriever configured)");
+    const KeywordSearch search;
+    const auto result =
+        search.Search(options.project_root, arguments["query"].get<std::string>(), ReadMaxResults(arguments, 200));
+    if (!result) {
+        return ToolError("keyword_search failed: " + result.Err().message);
+    }
+
+    Json list = Json::array();
+    for (const auto& match : result.Value()) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(match.file_path)) {
+            continue;
         }
-        if (!arguments.contains("intent") || !arguments["intent"].is_string()) {
-            return ToolError("context_retrieve requires a string 'intent' argument");
-        }
+        list.push_back(Json{
+            {"file_path", match.file_path},
+            {"line", match.line},
+            {"text", match.text},
+            {"score", match.score},
+        });
+    }
+    return TextContent(Json{{"matches", list}}.dump());
+}
 
-        const auto intent = arguments["intent"].get<std::string>();
-        ContextRetriever::RetrievalTruncation truncation;
-        auto items = options.context_cache != nullptr
-                          ? options.context_cache->GetOrRetrieve(*options.context_retriever, intent, &truncation)
-                          : options.context_retriever->Retrieve(intent, &truncation);
+Json HandleContextRetrieve(const McpServerOptions& options, const Json& arguments) {
+    if (options.context_retriever == nullptr) {
+        return ToolError("context_retrieve is not available (no ContextRetriever configured)");
+    }
+    if (!arguments.contains("intent") || !arguments["intent"].is_string()) {
+        return ToolError("context_retrieve requires a string 'intent' argument");
+    }
 
-        // Symbol/File/Keyword retrieval each cap at Options::max_*_matches
-        // (ContextRetriever.hpp) -- a match beyond the cap is dropped
-        // before it's even a candidate for ContextSelector's budget-based
-        // "omitted" below, so it would otherwise leave no trace the caller
-        // could see at all (found via manual testing, 2026-09-18). Always
-        // present, not just when true, so a caller can check one fixed
-        // shape rather than a field that sometimes doesn't exist.
-        Json truncated_json = Json{
-            {"symbol", truncation.symbol},
-            {"file", truncation.file},
-            {"keyword", truncation.keyword},
-        };
+    const auto intent = arguments["intent"].get<std::string>();
+    ContextRetriever::RetrievalTruncation truncation;
+    auto items = options.context_cache != nullptr
+                      ? options.context_cache->GetOrRetrieve(*options.context_retriever, intent, &truncation)
+                      : options.context_retriever->Retrieve(intent, &truncation);
 
-        if (options.suppress_resent_content && options.sent_ledger != nullptr) {
-            options.sent_ledger->BeginResponse();
-        }
+    // Symbol/File/Keyword retrieval each cap at Options::max_*_matches
+    // (ContextRetriever.hpp) -- a match beyond the cap is dropped
+    // before it's even a candidate for ContextSelector's budget-based
+    // "omitted" below, so it would otherwise leave no trace the caller
+    // could see at all (found via manual testing, 2026-09-18). Always
+    // present, not just when true, so a caller can check one fixed
+    // shape rather than a field that sometimes doesn't exist.
+    Json truncated_json = Json{
+        {"symbol", truncation.symbol},
+        {"file", truncation.file},
+        {"keyword", truncation.keyword},
+    };
 
-        // No budget: byte-for-byte the pre-existing response (when the
-        // sent ledger is also off -- its default), plus the new
-        // "truncated" field above.
-        if (options.context_response_budget_tokens <= 0) {
-            Json list = Json::array();
-            for (const auto& item : items) {
-                list.push_back(ContextItemJsonThroughLedger(item, options));
-            }
-            return TextContent(Json{{"items", list}, {"truncated", truncated_json}}.dump());
-        }
+    if (options.suppress_resent_content && options.sent_ledger != nullptr) {
+        options.sent_ledger->BeginResponse();
+    }
 
-        // AGENT.md #8's Compression + Budget Check, applied to the path an
-        // external AI actually uses. ContextSelector also publishes a
-        // "ContextAudit" event per decision, so MCP-path usage is now
-        // visible to GET /api/context/usage for any subscriber.
-        const ContextCompressor compressor;
-        const ContextSelector selector;
-        auto selection = selector.SelectWithCompression(std::move(items),
-                                                          ContextBudget(options.context_response_budget_tokens),
-                                                          compressor, ContextItemCost(ResponseItemCost));
-
-        if (options.context_retrieve_plain_text) {
-            return TextContent(PlainTextRetrieveResponse(selection, truncation, options));
-        }
-
-        // Sent-ledger suppression is applied after budget selection, not
-        // folded into it: `used_tokens`/`budget` below still charge the
-        // full item cost, so a caller can't be told it has more headroom
-        // than a session without ledger history would have.
+    // No budget: byte-for-byte the pre-existing response (when the
+    // sent ledger is also off -- its default), plus the new
+    // "truncated" field above.
+    if (options.context_response_budget_tokens <= 0) {
         Json list = Json::array();
-        for (const auto& item : selection.included) {
+        for (const auto& item : items) {
             list.push_back(ContextItemJsonThroughLedger(item, options));
         }
-        Json omitted = Json::array();
-        for (const auto& item : selection.excluded) {
-            if (WorthAnOmittedStub(item)) {
-                omitted.push_back(OmittedContextItemJson(item));
-            }
-        }
-
-        AISTUDIO_LOG_INFO("Core.MCP", "context_retrieve: intent='" + intent + "' included=" +
-                                            std::to_string(list.size()) + " omitted=" +
-                                            std::to_string(omitted.size()) + " tokens=" +
-                                            std::to_string(selection.used_tokens) + "/" +
-                                            std::to_string(options.context_response_budget_tokens));
-
-        return TextContent(Json{
-            {"items", list},
-            {"omitted", omitted},
-            {"truncated", truncated_json},
-            {"budget",
-             Json{
-                 {"max_tokens", options.context_response_budget_tokens},
-                 {"used_tokens", selection.used_tokens},
-                 {"included", list.size()},
-                 {"omitted", omitted.size()},
-                 // EstimateTokens()'s ~4-chars-per-token approximation,
-                 // not a model tokenizer's count.
-                 {"unit", "estimate"},
-             }},
-        }.dump());
+        return TextContent(Json{{"items", list}, {"truncated", truncated_json}}.dump());
     }
 
-    if (name == "context_fetch") {
-        if (options.project_root.empty()) {
-            return ToolError("context_fetch is not available (no project_root configured)");
+    // AGENT.md #8's Compression + Budget Check, applied to the path an
+    // external AI actually uses. ContextSelector also publishes a
+    // "ContextAudit" event per decision, so MCP-path usage is now
+    // visible to GET /api/context/usage for any subscriber.
+    const ContextCompressor compressor;
+    const ContextSelector selector;
+    auto selection = selector.SelectWithCompression(std::move(items),
+                                                      ContextBudget(options.context_response_budget_tokens),
+                                                      compressor, ContextItemCost(ResponseItemCost));
+
+    if (options.context_retrieve_plain_text) {
+        return TextContent(PlainTextRetrieveResponse(selection, truncation, options));
+    }
+
+    // Sent-ledger suppression is applied after budget selection, not
+    // folded into it: `used_tokens`/`budget` below still charge the
+    // full item cost, so a caller can't be told it has more headroom
+    // than a session without ledger history would have.
+    Json list = Json::array();
+    for (const auto& item : selection.included) {
+        list.push_back(ContextItemJsonThroughLedger(item, options));
+    }
+    Json omitted = Json::array();
+    for (const auto& item : selection.excluded) {
+        if (WorthAnOmittedStub(item)) {
+            omitted.push_back(OmittedContextItemJson(item));
         }
-        if (!arguments.contains("id") || !arguments["id"].is_string()) {
-            return ToolError("context_fetch requires a string 'id' argument");
+    }
+
+    AISTUDIO_LOG_INFO("Core.MCP", "context_retrieve: intent='" + intent + "' included=" +
+                                        std::to_string(list.size()) + " omitted=" +
+                                        std::to_string(omitted.size()) + " tokens=" +
+                                        std::to_string(selection.used_tokens) + "/" +
+                                        std::to_string(options.context_response_budget_tokens));
+
+    return TextContent(Json{
+        {"items", list},
+        {"omitted", omitted},
+        {"truncated", truncated_json},
+        {"budget",
+         Json{
+             {"max_tokens", options.context_response_budget_tokens},
+             {"used_tokens", selection.used_tokens},
+             {"included", list.size()},
+             {"omitted", omitted.size()},
+             // EstimateTokens()'s ~4-chars-per-token approximation,
+             // not a model tokenizer's count.
+             {"unit", "estimate"},
+         }},
+    }.dump());
+}
+
+Json HandleContextFetch(const McpServerOptions& options, const Json& arguments) {
+    if (options.project_root.empty()) {
+        return ToolError("context_fetch is not available (no project_root configured)");
+    }
+    if (!arguments.contains("id") || !arguments["id"].is_string()) {
+        return ToolError("context_fetch requires a string 'id' argument");
+    }
+    const auto id = arguments["id"].get<std::string>();
+    // docs/ROADMAP.md CE-5: optional, mirrors the "source" field the
+    // caller already received on the omitted item -- the caller is
+    // never asked to guess a kind from id shape (see SplitSymbolId's
+    // own comment on why that's unsafe), only to echo back what it
+    // was already given. Omitted/"File" is the pre-existing v1
+    // behavior below, byte-for-byte unchanged.
+    const auto source = arguments.value("source", std::string("File"));
+
+    if (source == "Symbol") {
+        if (options.symbol_index == nullptr) {
+            return ToolError("context_fetch: source \"Symbol\" is not available (no SymbolIndex configured)");
         }
-        const auto id = arguments["id"].get<std::string>();
-        // docs/ROADMAP.md CE-5: optional, mirrors the "source" field the
-        // caller already received on the omitted item -- the caller is
-        // never asked to guess a kind from id shape (see SplitSymbolId's
-        // own comment on why that's unsafe), only to echo back what it
-        // was already given. Omitted/"File" is the pre-existing v1
-        // behavior below, byte-for-byte unchanged.
-        const auto source = arguments.value("source", std::string("File"));
-
-        if (source == "Symbol") {
-            if (options.symbol_index == nullptr) {
-                return ToolError("context_fetch: source \"Symbol\" is not available (no SymbolIndex configured)");
-            }
-            const auto split = SplitSymbolId(id);
-            if (!split) {
-                return ToolError("context_fetch: '" + id + "' is not a recognized Symbol id (expected "
-                                                              "\"<file_path>:<symbol_name>\")");
-            }
-            const auto& [file_path, symbol_name] = *split;
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(file_path)) {
-                return ToolError("context_fetch: '" + file_path + "' is outside the allowed project scope");
-            }
-            const auto matches = options.symbol_index->FindByName(symbol_name);
-            const auto match_it = std::find_if(matches.begin(), matches.end(), [&](const Symbol& s) {
-                return s.file_path == file_path && s.name == symbol_name;
-            });
-            if (match_it == matches.end()) {
-                return ToolError("context_fetch: '" + id + "' does not match a known symbol");
-            }
-            const auto resolved = ResolveProjectFile(options.project_root, file_path);
-            if (!resolved) {
-                return ToolError("context_fetch: '" + file_path + "' does not resolve to a readable file");
-            }
-            const auto content = ReadFileContent(*resolved);
-            if (!content || !IsValidUtf8(*content)) {
-                return ToolError("context_fetch: failed to read '" + file_path + "' as UTF-8 text");
-            }
-            const int total_lines = CountLines(*content);
-            constexpr int kSymbolContextLines = 10;
-            const int start_line = std::max(1, match_it->line - kSymbolContextLines);
-            const int end_line = std::min(total_lines, match_it->line + kSymbolContextLines);
-
-            ContextItem item;
-            item.id = id;
-            item.source = ContextSourceKind::Symbol;
-            item.compression = CompressionLevel::Summary;
-            item.content = ExtractLines(*content, start_line, end_line);
-            item.estimated_tokens = EstimateTokens(item.content);
-
-            bool compressed = false;
-            if (arguments.contains("max_tokens") && arguments["max_tokens"].is_number_integer()) {
-                const auto max_tokens = arguments["max_tokens"].get<std::int64_t>();
-                if (max_tokens > 0 && item.estimated_tokens > max_tokens) {
-                    const ContextCompressor compressor;
-                    item = compressor.Compress(std::move(item), max_tokens);
-                    compressed = true;
-                }
-            }
-
-            return TextContent(Json{
-                {"id", id},
-                {"source", "Symbol"},
-                {"resolved_file", file_path},
-                {"symbol_line", match_it->line},
-                {"start_line", start_line},
-                {"end_line", end_line},
-                {"total_lines", total_lines},
-                {"compression", ToString(item.compression)},
-                {"compressed", compressed},
-                {"estimated_tokens", item.estimated_tokens},
-                {"content", item.content},
-            }.dump());
+        const auto split = SplitSymbolId(id);
+        if (!split) {
+            return ToolError("context_fetch: '" + id + "' is not a recognized Symbol id (expected "
+                                                          "\"<file_path>:<symbol_name>\")");
         }
-
-        if (source == "Dependency") {
-            const auto split = SplitDependencyId(id);
-            if (!split) {
-                return ToolError("context_fetch: '" + id + "' is not a recognized Dependency id (expected "
-                                                              "\"<file_path>-><related_path>\")");
-            }
-            const auto& [file_path, related_path] = *split;
-            if (options.firewall != nullptr &&
-                (!options.firewall->IsAllowed(file_path) || !options.firewall->IsAllowed(related_path))) {
-                return ToolError("context_fetch: '" + id + "' is outside the allowed project scope");
-            }
-            // No file read needed -- the full content a Dependency item
-            // can ever carry is this one synthesized line (see
-            // DependencyContextSource.cpp's own MakeItem()), already
-            // reconstructable from the id alone.
-            ContextItem item;
-            item.id = id;
-            item.source = ContextSourceKind::Dependency;
-            item.compression = CompressionLevel::Reference;
-            item.content = file_path + " includes " + related_path;
-            item.estimated_tokens = EstimateTokens(item.content);
-
-            return TextContent(Json{
-                {"id", id},
-                {"source", "Dependency"},
-                {"compression", ToString(item.compression)},
-                {"compressed", false},
-                {"estimated_tokens", item.estimated_tokens},
-                {"content", item.content},
-            }.dump());
+        const auto& [file_path, symbol_name] = *split;
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(file_path)) {
+            return ToolError("context_fetch: '" + file_path + "' is outside the allowed project scope");
         }
-
-        if (source == "GitDiff") {
-            if (options.backend_registry == nullptr) {
-                return ToolError("context_fetch: source \"GitDiff\" is not available (no BackendRegistry configured)");
-            }
-            const auto sha = ParseGitCommitId(id);
-            if (!sha) {
-                return ToolError("context_fetch: '" + id +
-                                  "' is not a recognized GitDiff id (expected \"git/commit/<sha>\")");
-            }
-            Query query;
-            query.backend_id = "core.git";
-            query.name = "git.show";
-            query.parameters = std::any(*sha);
-            const auto result = options.backend_registry->RunQuery(query);
-            if (!result) {
-                return ToolError("context_fetch: git.show failed for '" + *sha + "': " + result.Err().message);
-            }
-            auto diff_text = std::any_cast<std::string>(result.Value());
-            if (!IsValidUtf8(diff_text)) {
-                return ToolError("context_fetch: '" + id + "' is not valid UTF-8 text");
-            }
-
-            ContextItem item;
-            item.id = id;
-            item.source = ContextSourceKind::GitDiff;
-            item.compression = CompressionLevel::Raw;
-            item.content = std::move(diff_text);
-            item.estimated_tokens = EstimateTokens(item.content);
-
-            bool compressed = false;
-            if (arguments.contains("max_tokens") && arguments["max_tokens"].is_number_integer()) {
-                const auto max_tokens = arguments["max_tokens"].get<std::int64_t>();
-                if (max_tokens > 0 && item.estimated_tokens > max_tokens) {
-                    const ContextCompressor compressor;
-                    item = compressor.Compress(std::move(item), max_tokens);
-                    compressed = true;
-                }
-            }
-
-            return TextContent(Json{
-                {"id", id},
-                {"source", "GitDiff"},
-                {"sha", *sha},
-                {"compression", ToString(item.compression)},
-                {"compressed", compressed},
-                {"estimated_tokens", item.estimated_tokens},
-                {"content", item.content},
-            }.dump());
+        const auto matches = options.symbol_index->FindByName(symbol_name);
+        const auto match_it = std::find_if(matches.begin(), matches.end(), [&](const Symbol& s) {
+            return s.file_path == file_path && s.name == symbol_name;
+        });
+        if (match_it == matches.end()) {
+            return ToolError("context_fetch: '" + id + "' does not match a known symbol");
         }
-
-        if (source == "Custom") {
-            const auto parsed = ParseKeywordId(id);
-            if (!parsed) {
-                return ToolError("context_fetch: '" + id +
-                                  "' is a Custom item not in the \"keyword:<file_path>:<line>\" convention -- "
-                                  "this Backend-provided item cannot be re-fetched");
-            }
-            const auto& [file_path, line] = *parsed;
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(file_path)) {
-                return ToolError("context_fetch: '" + file_path + "' is outside the allowed project scope");
-            }
-            const auto resolved = ResolveProjectFile(options.project_root, file_path);
-            if (!resolved) {
-                return ToolError("context_fetch: '" + file_path + "' does not resolve to a readable file");
-            }
-            const auto content = ReadFileContent(*resolved);
-            if (!content || !IsValidUtf8(*content)) {
-                return ToolError("context_fetch: failed to read '" + file_path + "' as UTF-8 text");
-            }
-            const int total_lines = CountLines(*content);
-            constexpr int kKeywordContextLines = 10;
-            const int start_line = std::max(1, line - kKeywordContextLines);
-            const int end_line = std::min(total_lines, line + kKeywordContextLines);
-
-            ContextItem item;
-            item.id = id;
-            item.source = ContextSourceKind::Custom;
-            item.compression = CompressionLevel::Summary;
-            item.content = ExtractLines(*content, start_line, end_line);
-            item.estimated_tokens = EstimateTokens(item.content);
-
-            bool compressed = false;
-            if (arguments.contains("max_tokens") && arguments["max_tokens"].is_number_integer()) {
-                const auto max_tokens = arguments["max_tokens"].get<std::int64_t>();
-                if (max_tokens > 0 && item.estimated_tokens > max_tokens) {
-                    const ContextCompressor compressor;
-                    item = compressor.Compress(std::move(item), max_tokens);
-                    compressed = true;
-                }
-            }
-
-            return TextContent(Json{
-                {"id", id},
-                {"source", "Custom"},
-                {"resolved_file", file_path},
-                {"start_line", start_line},
-                {"end_line", end_line},
-                {"total_lines", total_lines},
-                {"compression", ToString(item.compression)},
-                {"compressed", compressed},
-                {"estimated_tokens", item.estimated_tokens},
-                {"content", item.content},
-            }.dump());
-        }
-
-        if (source != "File") {
-            return ToolError("context_fetch: unknown 'source' \"" + source +
-                              "\" (expected \"File\", \"Symbol\", \"Dependency\", \"GitDiff\", or \"Custom\")");
-        }
-
-        if (options.firewall != nullptr && !options.firewall->IsAllowed(id)) {
-            return ToolError("context_fetch: '" + id + "' is outside the allowed project scope");
-        }
-
-        const auto resolved = ResolveProjectFile(options.project_root, id);
+        const auto resolved = ResolveProjectFile(options.project_root, file_path);
         if (!resolved) {
-            // Symbol/Keyword/Backend ids aren't file paths; erroring beats
-            // guessing which file the caller meant.
-            return ToolError("context_fetch: '" + id +
-                              "' does not resolve to a readable file under the project root. v1 accepts a "
-                              "project-relative file path (the id File-source items use).");
+            return ToolError("context_fetch: '" + file_path + "' does not resolve to a readable file");
         }
-
         const auto content = ReadFileContent(*resolved);
-        if (!content) {
-            return ToolError("context_fetch: failed to read '" + id + "'");
+        if (!content || !IsValidUtf8(*content)) {
+            return ToolError("context_fetch: failed to read '" + file_path + "' as UTF-8 text");
         }
-        if (!IsValidUtf8(*content)) {
-            // A binary file's raw bytes can't become JSON string content
-            // (nlohmann::json::dump() would throw) -- rejecting here beats
-            // crashing the whole response the way FileScanner having no
-            // text/binary distinction otherwise would.
-            return ToolError("context_fetch: '" + id + "' is not valid UTF-8 text (binary file?)");
-        }
-
-        const auto mode = arguments.value("mode", std::string("full"));
         const int total_lines = CountLines(*content);
+        constexpr int kSymbolContextLines = 10;
+        const int start_line = std::max(1, match_it->line - kSymbolContextLines);
+        const int end_line = std::min(total_lines, match_it->line + kSymbolContextLines);
 
         ContextItem item;
         item.id = id;
-        item.source = ContextSourceKind::File;
-        int start_line = 1;
-        int end_line = total_lines;
-
-        if (mode == "range") {
-            if (!arguments.contains("start_line") || !arguments["start_line"].is_number_integer() ||
-                !arguments.contains("end_line") || !arguments["end_line"].is_number_integer()) {
-                return ToolError("context_fetch: mode \"range\" requires integer 'start_line' and 'end_line' "
-                                  "(1-based, inclusive)");
-            }
-            start_line = arguments["start_line"].get<int>();
-            end_line = arguments["end_line"].get<int>();
-            if (start_line < 1 || end_line < start_line) {
-                return ToolError("context_fetch: 'start_line' must be >= 1 and 'end_line' >= 'start_line'");
-            }
-            item.content = ExtractLines(*content, start_line, end_line);
-            item.compression = CompressionLevel::Summary;
-            start_line = std::min(start_line, total_lines);
-            end_line = std::min(end_line, total_lines);
-        } else if (mode == "full") {
-            item.content = *content;
-            item.compression = CompressionLevel::Raw;
-        } else {
-            return ToolError("context_fetch: unknown mode '" + mode + "' (expected \"full\" or \"range\")");
-        }
+        item.source = ContextSourceKind::Symbol;
+        item.compression = CompressionLevel::Summary;
+        item.content = ExtractLines(*content, start_line, end_line);
         item.estimated_tokens = EstimateTokens(item.content);
 
         bool compressed = false;
@@ -1163,7 +935,9 @@ Json CallTool(const McpServerOptions& options, const std::string& name, const Js
 
         return TextContent(Json{
             {"id", id},
-            {"mode", mode},
+            {"source", "Symbol"},
+            {"resolved_file", file_path},
+            {"symbol_line", match_it->line},
             {"start_line", start_line},
             {"end_line", end_line},
             {"total_lines", total_lines},
@@ -1174,458 +948,732 @@ Json CallTool(const McpServerOptions& options, const std::string& name, const Js
         }.dump());
     }
 
-    if (name == "include_graph") {
-        if (options.include_graph == nullptr) {
-            return ToolError("include_graph is not available (no IncludeGraph configured)");
+    if (source == "Dependency") {
+        const auto split = SplitDependencyId(id);
+        if (!split) {
+            return ToolError("context_fetch: '" + id + "' is not a recognized Dependency id (expected "
+                                                          "\"<file_path>-><related_path>\")");
         }
-        if (!arguments.contains("file_path") || !arguments["file_path"].is_string()) {
-            return ToolError("include_graph requires a string 'file_path' argument");
+        const auto& [file_path, related_path] = *split;
+        if (options.firewall != nullptr &&
+            (!options.firewall->IsAllowed(file_path) || !options.firewall->IsAllowed(related_path))) {
+            return ToolError("context_fetch: '" + id + "' is outside the allowed project scope");
         }
-        const auto file_path = arguments["file_path"].get<std::string>();
-        const auto direction = arguments.value("direction", std::string("includes"));
-        const auto files = direction == "included_by" ? options.include_graph->IncludedBy(file_path)
-                                                        : options.include_graph->Includes(file_path);
-
-        Json list = Json::array();
-        for (const auto& f : files) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
-                continue;
-            }
-            list.push_back(f);
-        }
-        return TextContent(Json{{"file_path", file_path}, {"direction", direction}, {"files", list}}.dump());
-    }
-
-    if (name == "call_graph") {
-        if (options.call_graph == nullptr) {
-            return ToolError("call_graph is not available (no CallGraph configured)");
-        }
-        if (!arguments.contains("symbol_name") || !arguments["symbol_name"].is_string()) {
-            return ToolError("call_graph requires a string 'symbol_name' argument");
-        }
-        const auto symbol_name = arguments["symbol_name"].get<std::string>();
-        const auto direction = arguments.value("direction", std::string("callers"));
-        const auto edges = direction == "callees" ? options.call_graph->Callees(symbol_name)
-                                                    : options.call_graph->Callers(symbol_name);
-
-        Json list = Json::array();
-        for (const auto& edge : edges) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(edge.caller_file)) {
-                continue;
-            }
-            list.push_back(Json{
-                {"caller_name", edge.caller_name},
-                {"caller_file", edge.caller_file},
-                {"line", edge.line},
-                {"callee_text", edge.callee_text},
-            });
-        }
-        return TextContent(Json{{"symbol_name", symbol_name}, {"direction", direction}, {"edges", list}}.dump());
-    }
-
-    if (name == "inheritance_graph") {
-        if (options.inheritance_graph == nullptr) {
-            return ToolError("inheritance_graph is not available (no InheritanceGraph configured)");
-        }
-        if (!arguments.contains("class_name") || !arguments["class_name"].is_string()) {
-            return ToolError("inheritance_graph requires a string 'class_name' argument");
-        }
-        const auto class_name = arguments["class_name"].get<std::string>();
-        const auto direction = arguments.value("direction", std::string("derived"));
-        const auto edges = direction == "bases" ? options.inheritance_graph->Bases(class_name)
-                                                  : options.inheritance_graph->Derived(class_name);
-
-        Json list = Json::array();
-        for (const auto& edge : edges) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(edge.derived_file)) {
-                continue;
-            }
-            list.push_back(Json{
-                {"derived_name", edge.derived_name},
-                {"derived_file", edge.derived_file},
-                {"line", edge.line},
-                {"base_name", edge.base_name},
-            });
-        }
-        return TextContent(Json{{"class_name", class_name}, {"direction", direction}, {"edges", list}}.dump());
-    }
-
-    if (name == "reference_graph") {
-        if (options.reference_graph == nullptr) {
-            return ToolError("reference_graph is not available (no ReferenceGraph configured)");
-        }
-        if (!arguments.contains("type_name") || !arguments["type_name"].is_string()) {
-            return ToolError("reference_graph requires a string 'type_name' argument");
-        }
-        const auto type_name = arguments["type_name"].get<std::string>();
-        const auto edges = options.reference_graph->References(type_name);
-
-        Json list = Json::array();
-        for (const auto& edge : edges) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(edge.referencing_file)) {
-                continue;
-            }
-            list.push_back(Json{
-                {"type_name", edge.type_name},
-                {"referencing_file", edge.referencing_file},
-                {"line", edge.line},
-            });
-        }
-        return TextContent(Json{{"type_name", type_name}, {"references", list}}.dump());
-    }
-
-    if (name == "ast_tree") {
-        if (options.ast_index == nullptr) {
-            return ToolError("ast_tree is not available (no AstIndex configured)");
-        }
-        if (!arguments.contains("file_path") || !arguments["file_path"].is_string()) {
-            return ToolError("ast_tree requires a string 'file_path' argument");
-        }
-        const auto file_path = arguments["file_path"].get<std::string>();
-        if (options.firewall != nullptr && !options.firewall->IsAllowed(file_path)) {
-            return ToolError("ast_tree: file not accessible: " + file_path);
-        }
-        const auto tree = options.ast_index->Get(file_path);
-        if (!tree.has_value()) {
-            return ToolError("no AST indexed for file: " + file_path);
-        }
-        return TextContent(Json{{"file_path", file_path}, {"tree", AstNodeToJson(*tree)}}.dump());
-    }
-
-    if (name == "impact_analysis") {
-        if (options.impact_analyzer == nullptr) {
-            return ToolError("impact_analysis is not available (no ImpactAnalyzer configured)");
-        }
-        if (!arguments.contains("file_path") || !arguments["file_path"].is_string()) {
-            return ToolError("impact_analysis requires a string 'file_path' argument");
-        }
-        const auto result = options.impact_analyzer->Analyze(arguments["file_path"].get<std::string>());
-
-        Json affected_files = Json::array();
-        for (const auto& f : result.affected_files) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
-                continue;
-            }
-            affected_files.push_back(f);
-        }
-
-        Json affected_symbols = Json::array();
-        for (const auto& symbol : result.affected_symbols) {
-            Json callers = Json::array();
-            for (const auto& caller : symbol.callers) {
-                if (options.firewall != nullptr && !options.firewall->IsAllowed(caller.caller_file)) {
-                    continue;
-                }
-                callers.push_back(Json{
-                    {"caller_name", caller.caller_name},
-                    {"caller_file", caller.caller_file},
-                    {"line", caller.line},
-                    {"callee_text", caller.callee_text},
-                });
-            }
-            affected_symbols.push_back(Json{{"symbol_name", symbol.symbol_name}, {"callers", callers}});
-        }
+        // No file read needed -- the full content a Dependency item
+        // can ever carry is this one synthesized line (see
+        // DependencyContextSource.cpp's own MakeItem()), already
+        // reconstructable from the id alone.
+        ContextItem item;
+        item.id = id;
+        item.source = ContextSourceKind::Dependency;
+        item.compression = CompressionLevel::Reference;
+        item.content = file_path + " includes " + related_path;
+        item.estimated_tokens = EstimateTokens(item.content);
 
         return TextContent(Json{
-            {"target_file", result.target_file},
-            {"affected_files", affected_files},
-            {"affected_symbols", affected_symbols},
+            {"id", id},
+            {"source", "Dependency"},
+            {"compression", ToString(item.compression)},
+            {"compressed", false},
+            {"estimated_tokens", item.estimated_tokens},
+            {"content", item.content},
         }.dump());
     }
 
-    if (name == "changed_impact_analysis") {
-        if (options.impact_analyzer == nullptr || options.backend_registry == nullptr) {
-            return ToolError("changed_impact_analysis is not available (no ImpactAnalyzer/BackendRegistry configured)");
+    if (source == "GitDiff") {
+        if (options.backend_registry == nullptr) {
+            return ToolError("context_fetch: source \"GitDiff\" is not available (no BackendRegistry configured)");
         }
-
-        // "git.diff.head" (working tree vs HEAD), not "git.diff" -- it's
-        // the one GitBackend query whose new-side line numbers always
-        // match the actual current file content regardless of what's
-        // staged vs unstaged, which is what correlating against
-        // SymbolIndex needs (see GitBackend.hpp's own comment on Handle()).
+        const auto sha = ParseGitCommitId(id);
+        if (!sha) {
+            return ToolError("context_fetch: '" + id +
+                              "' is not a recognized GitDiff id (expected \"git/commit/<sha>\")");
+        }
         Query query;
         query.backend_id = "core.git";
-        query.name = "git.diff.head";
-        const auto diff_result = options.backend_registry->RunQuery(query);
-        if (!diff_result) {
-            return ToolError("changed_impact_analysis: git.diff.head query failed: " + diff_result.Err().message);
-        }
-        const auto diff_text = std::any_cast<std::string>(diff_result.Value());
-
-        const auto result = options.impact_analyzer->AnalyzeChanges(diff_text);
-
-        Json changed_files = Json::array();
-        for (const auto& f : result.changed_files) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
-                continue;
-            }
-            changed_files.push_back(f);
-        }
-
-        Json affected_files = Json::array();
-        for (const auto& f : result.affected_files) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
-                continue;
-            }
-            affected_files.push_back(f);
-        }
-
-        Json changed_symbols = Json::array();
-        for (const auto& symbol : result.changed_symbols) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(symbol.file_path)) {
-                continue;
-            }
-            Json callers = Json::array();
-            for (const auto& caller : symbol.callers) {
-                if (options.firewall != nullptr && !options.firewall->IsAllowed(caller.caller_file)) {
-                    continue;
-                }
-                callers.push_back(Json{
-                    {"caller_name", caller.caller_name},
-                    {"caller_file", caller.caller_file},
-                    {"line", caller.line},
-                    {"callee_text", caller.callee_text},
-                });
-            }
-            changed_symbols.push_back(Json{
-                {"symbol_name", symbol.symbol_name},
-                {"kind", ToString(symbol.kind)},
-                {"file_path", symbol.file_path},
-                {"callers", callers},
-            });
-        }
-
-        return TextContent(Json{
-            {"changed_files", changed_files},
-            {"changed_symbols", changed_symbols},
-            {"affected_files", affected_files},
-        }.dump());
-    }
-
-    if (name == "project_rules") {
-        if (options.backend_registry == nullptr) {
-            return ToolError("project_rules is not available (no BackendRegistry configured)");
-        }
-
-        Query query;
-        query.backend_id = "core.project_rules";
-        query.name = "rules.get";
+        query.name = "git.show";
+        query.parameters = std::any(*sha);
         const auto result = options.backend_registry->RunQuery(query);
         if (!result) {
-            return ToolError("project_rules: rules.get query failed: " + result.Err().message);
+            return ToolError("context_fetch: git.show failed for '" + *sha + "': " + result.Err().message);
         }
-        return TextContent(std::any_cast<std::string>(result.Value()));
-    }
-
-    if (name == "similar_change_search") {
-        if (options.backend_registry == nullptr) {
-            return ToolError("similar_change_search is not available (no BackendRegistry configured)");
+        auto diff_text = std::any_cast<std::string>(result.Value());
+        if (!IsValidUtf8(diff_text)) {
+            return ToolError("context_fetch: '" + id + "' is not valid UTF-8 text");
         }
-        if (!arguments.contains("symbol_name") || !arguments["symbol_name"].is_string() ||
-            arguments["symbol_name"].get<std::string>().empty()) {
-            return ToolError("similar_change_search requires a non-empty string 'symbol_name' argument");
-        }
-        const auto symbol_name = arguments["symbol_name"].get<std::string>();
 
-        Query log_query;
-        log_query.backend_id = "core.git";
-        log_query.name = "git.log.symbol";
-        log_query.parameters = std::any(symbol_name);
-        const auto log_result = options.backend_registry->RunQuery(log_query);
-        if (!log_result) {
-            return ToolError("similar_change_search: git.log.symbol query failed: " + log_result.Err().message);
-        }
-        const auto commits = std::any_cast<std::vector<GitCommitEntry>>(log_result.Value());
+        ContextItem item;
+        item.id = id;
+        item.source = ContextSourceKind::GitDiff;
+        item.compression = CompressionLevel::Raw;
+        item.content = std::move(diff_text);
+        item.estimated_tokens = EstimateTokens(item.content);
 
-        constexpr std::size_t kMaxCommits = 5;
-        constexpr std::size_t kMaxDiffChars = 4000;
-        Json commit_list = Json::array();
-        for (std::size_t i = 0; i < commits.size() && i < kMaxCommits; ++i) {
-            const auto& commit = commits[i];
-
-            std::string diff_text;
-            Query show_query;
-            show_query.backend_id = "core.git";
-            show_query.name = "git.show";
-            show_query.parameters = std::any(commit.sha);
-            if (const auto show_result = options.backend_registry->RunQuery(show_query); show_result) {
-                diff_text = std::any_cast<std::string>(show_result.Value());
+        bool compressed = false;
+        if (arguments.contains("max_tokens") && arguments["max_tokens"].is_number_integer()) {
+            const auto max_tokens = arguments["max_tokens"].get<std::int64_t>();
+            if (max_tokens > 0 && item.estimated_tokens > max_tokens) {
+                const ContextCompressor compressor;
+                item = compressor.Compress(std::move(item), max_tokens);
+                compressed = true;
             }
-            if (diff_text.size() > kMaxDiffChars) {
-                // Utf8SafeTruncationLength, not a raw resize(kMaxDiffChars)
-                // -- see Core/Git/GitBackend.cpp's identical fix
-                // (docs/ROADMAP.md CE-5) for why a naive byte-count cut
-                // can produce invalid UTF-8 here.
-                diff_text.resize(Utf8SafeTruncationLength(diff_text, kMaxDiffChars));
-                diff_text += "\n... [truncated]";
-            }
-
-            commit_list.push_back(Json{
-                {"sha", commit.sha},
-                {"date", commit.date},
-                {"subject", commit.subject},
-                {"diff", diff_text},
-            });
-        }
-
-        return TextContent(Json{{"symbol_name", symbol_name}, {"commits", commit_list}}.dump());
-    }
-
-    if (name == "branch_impact_analysis") {
-        if (options.impact_analyzer == nullptr || options.backend_registry == nullptr) {
-            return ToolError("branch_impact_analysis is not available (no ImpactAnalyzer/BackendRegistry configured)");
-        }
-        if (!arguments.contains("base_branch") || !arguments["base_branch"].is_string() ||
-            arguments["base_branch"].get<std::string>().empty()) {
-            return ToolError("branch_impact_analysis requires a non-empty string 'base_branch' argument");
-        }
-        const auto base_branch = arguments["base_branch"].get<std::string>();
-
-        Query query;
-        query.backend_id = "core.git";
-        query.name = "git.diff.branch";
-        query.parameters = std::any(base_branch);
-        const auto diff_result = options.backend_registry->RunQuery(query);
-        if (!diff_result) {
-            return ToolError("branch_impact_analysis: git.diff.branch query failed: " + diff_result.Err().message);
-        }
-        const auto diff_text = std::any_cast<std::string>(diff_result.Value());
-
-        const auto result = options.impact_analyzer->AnalyzeChanges(diff_text);
-
-        Json changed_files = Json::array();
-        for (const auto& f : result.changed_files) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
-                continue;
-            }
-            changed_files.push_back(f);
-        }
-
-        Json affected_files = Json::array();
-        for (const auto& f : result.affected_files) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
-                continue;
-            }
-            affected_files.push_back(f);
-        }
-
-        Json changed_symbols = Json::array();
-        for (const auto& symbol : result.changed_symbols) {
-            if (options.firewall != nullptr && !options.firewall->IsAllowed(symbol.file_path)) {
-                continue;
-            }
-            Json callers = Json::array();
-            for (const auto& caller : symbol.callers) {
-                if (options.firewall != nullptr && !options.firewall->IsAllowed(caller.caller_file)) {
-                    continue;
-                }
-                callers.push_back(Json{
-                    {"caller_name", caller.caller_name},
-                    {"caller_file", caller.caller_file},
-                    {"line", caller.line},
-                    {"callee_text", caller.callee_text},
-                });
-            }
-            changed_symbols.push_back(Json{
-                {"symbol_name", symbol.symbol_name},
-                {"kind", ToString(symbol.kind)},
-                {"file_path", symbol.file_path},
-                {"callers", callers},
-            });
         }
 
         return TextContent(Json{
-            {"base_branch", base_branch},
-            {"changed_files", changed_files},
-            {"changed_symbols", changed_symbols},
-            {"affected_files", affected_files},
+            {"id", id},
+            {"source", "GitDiff"},
+            {"sha", *sha},
+            {"compression", ToString(item.compression)},
+            {"compressed", compressed},
+            {"estimated_tokens", item.estimated_tokens},
+            {"content", item.content},
         }.dump());
     }
 
+    if (source == "Custom") {
+        const auto parsed = ParseKeywordId(id);
+        if (!parsed) {
+            return ToolError("context_fetch: '" + id +
+                              "' is a Custom item not in the \"keyword:<file_path>:<line>\" convention -- "
+                              "this Backend-provided item cannot be re-fetched");
+        }
+        const auto& [file_path, line] = *parsed;
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(file_path)) {
+            return ToolError("context_fetch: '" + file_path + "' is outside the allowed project scope");
+        }
+        const auto resolved = ResolveProjectFile(options.project_root, file_path);
+        if (!resolved) {
+            return ToolError("context_fetch: '" + file_path + "' does not resolve to a readable file");
+        }
+        const auto content = ReadFileContent(*resolved);
+        if (!content || !IsValidUtf8(*content)) {
+            return ToolError("context_fetch: failed to read '" + file_path + "' as UTF-8 text");
+        }
+        const int total_lines = CountLines(*content);
+        constexpr int kKeywordContextLines = 10;
+        const int start_line = std::max(1, line - kKeywordContextLines);
+        const int end_line = std::min(total_lines, line + kKeywordContextLines);
+
+        ContextItem item;
+        item.id = id;
+        item.source = ContextSourceKind::Custom;
+        item.compression = CompressionLevel::Summary;
+        item.content = ExtractLines(*content, start_line, end_line);
+        item.estimated_tokens = EstimateTokens(item.content);
+
+        bool compressed = false;
+        if (arguments.contains("max_tokens") && arguments["max_tokens"].is_number_integer()) {
+            const auto max_tokens = arguments["max_tokens"].get<std::int64_t>();
+            if (max_tokens > 0 && item.estimated_tokens > max_tokens) {
+                const ContextCompressor compressor;
+                item = compressor.Compress(std::move(item), max_tokens);
+                compressed = true;
+            }
+        }
+
+        return TextContent(Json{
+            {"id", id},
+            {"source", "Custom"},
+            {"resolved_file", file_path},
+            {"start_line", start_line},
+            {"end_line", end_line},
+            {"total_lines", total_lines},
+            {"compression", ToString(item.compression)},
+            {"compressed", compressed},
+            {"estimated_tokens", item.estimated_tokens},
+            {"content", item.content},
+        }.dump());
+    }
+
+    if (source != "File") {
+        return ToolError("context_fetch: unknown 'source' \"" + source +
+                          "\" (expected \"File\", \"Symbol\", \"Dependency\", \"GitDiff\", or \"Custom\")");
+    }
+
+    if (options.firewall != nullptr && !options.firewall->IsAllowed(id)) {
+        return ToolError("context_fetch: '" + id + "' is outside the allowed project scope");
+    }
+
+    const auto resolved = ResolveProjectFile(options.project_root, id);
+    if (!resolved) {
+        // Symbol/Keyword/Backend ids aren't file paths; erroring beats
+        // guessing which file the caller meant.
+        return ToolError("context_fetch: '" + id +
+                          "' does not resolve to a readable file under the project root. v1 accepts a "
+                          "project-relative file path (the id File-source items use).");
+    }
+
+    const auto content = ReadFileContent(*resolved);
+    if (!content) {
+        return ToolError("context_fetch: failed to read '" + id + "'");
+    }
+    if (!IsValidUtf8(*content)) {
+        // A binary file's raw bytes can't become JSON string content
+        // (nlohmann::json::dump() would throw) -- rejecting here beats
+        // crashing the whole response the way FileScanner having no
+        // text/binary distinction otherwise would.
+        return ToolError("context_fetch: '" + id + "' is not valid UTF-8 text (binary file?)");
+    }
+
+    const auto mode = arguments.value("mode", std::string("full"));
+    const int total_lines = CountLines(*content);
+
+    ContextItem item;
+    item.id = id;
+    item.source = ContextSourceKind::File;
+    int start_line = 1;
+    int end_line = total_lines;
+
+    if (mode == "range") {
+        if (!arguments.contains("start_line") || !arguments["start_line"].is_number_integer() ||
+            !arguments.contains("end_line") || !arguments["end_line"].is_number_integer()) {
+            return ToolError("context_fetch: mode \"range\" requires integer 'start_line' and 'end_line' "
+                              "(1-based, inclusive)");
+        }
+        start_line = arguments["start_line"].get<int>();
+        end_line = arguments["end_line"].get<int>();
+        if (start_line < 1 || end_line < start_line) {
+            return ToolError("context_fetch: 'start_line' must be >= 1 and 'end_line' >= 'start_line'");
+        }
+        item.content = ExtractLines(*content, start_line, end_line);
+        item.compression = CompressionLevel::Summary;
+        start_line = std::min(start_line, total_lines);
+        end_line = std::min(end_line, total_lines);
+    } else if (mode == "full") {
+        item.content = *content;
+        item.compression = CompressionLevel::Raw;
+    } else {
+        return ToolError("context_fetch: unknown mode '" + mode + "' (expected \"full\" or \"range\")");
+    }
+    item.estimated_tokens = EstimateTokens(item.content);
+
+    bool compressed = false;
+    if (arguments.contains("max_tokens") && arguments["max_tokens"].is_number_integer()) {
+        const auto max_tokens = arguments["max_tokens"].get<std::int64_t>();
+        if (max_tokens > 0 && item.estimated_tokens > max_tokens) {
+            const ContextCompressor compressor;
+            item = compressor.Compress(std::move(item), max_tokens);
+            compressed = true;
+        }
+    }
+
+    return TextContent(Json{
+        {"id", id},
+        {"mode", mode},
+        {"start_line", start_line},
+        {"end_line", end_line},
+        {"total_lines", total_lines},
+        {"compression", ToString(item.compression)},
+        {"compressed", compressed},
+        {"estimated_tokens", item.estimated_tokens},
+        {"content", item.content},
+    }.dump());
+}
+
+Json HandleIncludeGraph(const McpServerOptions& options, const Json& arguments) {
+    if (options.include_graph == nullptr) {
+        return ToolError("include_graph is not available (no IncludeGraph configured)");
+    }
+    if (!arguments.contains("file_path") || !arguments["file_path"].is_string()) {
+        return ToolError("include_graph requires a string 'file_path' argument");
+    }
+    const auto file_path = arguments["file_path"].get<std::string>();
+    const auto direction = arguments.value("direction", std::string("includes"));
+    const auto files = direction == "included_by" ? options.include_graph->IncludedBy(file_path)
+                                                    : options.include_graph->Includes(file_path);
+
+    Json list = Json::array();
+    for (const auto& f : files) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
+            continue;
+        }
+        list.push_back(f);
+    }
+    return TextContent(Json{{"file_path", file_path}, {"direction", direction}, {"files", list}}.dump());
+}
+
+Json HandleCallGraph(const McpServerOptions& options, const Json& arguments) {
+    if (options.call_graph == nullptr) {
+        return ToolError("call_graph is not available (no CallGraph configured)");
+    }
+    if (!arguments.contains("symbol_name") || !arguments["symbol_name"].is_string()) {
+        return ToolError("call_graph requires a string 'symbol_name' argument");
+    }
+    const auto symbol_name = arguments["symbol_name"].get<std::string>();
+    const auto direction = arguments.value("direction", std::string("callers"));
+    const auto edges = direction == "callees" ? options.call_graph->Callees(symbol_name)
+                                                : options.call_graph->Callers(symbol_name);
+
+    Json list = Json::array();
+    for (const auto& edge : edges) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(edge.caller_file)) {
+            continue;
+        }
+        list.push_back(Json{
+            {"caller_name", edge.caller_name},
+            {"caller_file", edge.caller_file},
+            {"line", edge.line},
+            {"callee_text", edge.callee_text},
+        });
+    }
+    return TextContent(Json{{"symbol_name", symbol_name}, {"direction", direction}, {"edges", list}}.dump());
+}
+
+Json HandleInheritanceGraph(const McpServerOptions& options, const Json& arguments) {
+    if (options.inheritance_graph == nullptr) {
+        return ToolError("inheritance_graph is not available (no InheritanceGraph configured)");
+    }
+    if (!arguments.contains("class_name") || !arguments["class_name"].is_string()) {
+        return ToolError("inheritance_graph requires a string 'class_name' argument");
+    }
+    const auto class_name = arguments["class_name"].get<std::string>();
+    const auto direction = arguments.value("direction", std::string("derived"));
+    const auto edges = direction == "bases" ? options.inheritance_graph->Bases(class_name)
+                                              : options.inheritance_graph->Derived(class_name);
+
+    Json list = Json::array();
+    for (const auto& edge : edges) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(edge.derived_file)) {
+            continue;
+        }
+        list.push_back(Json{
+            {"derived_name", edge.derived_name},
+            {"derived_file", edge.derived_file},
+            {"line", edge.line},
+            {"base_name", edge.base_name},
+        });
+    }
+    return TextContent(Json{{"class_name", class_name}, {"direction", direction}, {"edges", list}}.dump());
+}
+
+Json HandleReferenceGraph(const McpServerOptions& options, const Json& arguments) {
+    if (options.reference_graph == nullptr) {
+        return ToolError("reference_graph is not available (no ReferenceGraph configured)");
+    }
+    if (!arguments.contains("type_name") || !arguments["type_name"].is_string()) {
+        return ToolError("reference_graph requires a string 'type_name' argument");
+    }
+    const auto type_name = arguments["type_name"].get<std::string>();
+    const auto edges = options.reference_graph->References(type_name);
+
+    Json list = Json::array();
+    for (const auto& edge : edges) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(edge.referencing_file)) {
+            continue;
+        }
+        list.push_back(Json{
+            {"type_name", edge.type_name},
+            {"referencing_file", edge.referencing_file},
+            {"line", edge.line},
+        });
+    }
+    return TextContent(Json{{"type_name", type_name}, {"references", list}}.dump());
+}
+
+Json HandleAstTree(const McpServerOptions& options, const Json& arguments) {
+    if (options.ast_index == nullptr) {
+        return ToolError("ast_tree is not available (no AstIndex configured)");
+    }
+    if (!arguments.contains("file_path") || !arguments["file_path"].is_string()) {
+        return ToolError("ast_tree requires a string 'file_path' argument");
+    }
+    const auto file_path = arguments["file_path"].get<std::string>();
+    if (options.firewall != nullptr && !options.firewall->IsAllowed(file_path)) {
+        return ToolError("ast_tree: file not accessible: " + file_path);
+    }
+    const auto tree = options.ast_index->Get(file_path);
+    if (!tree.has_value()) {
+        return ToolError("no AST indexed for file: " + file_path);
+    }
+    return TextContent(Json{{"file_path", file_path}, {"tree", AstNodeToJson(*tree)}}.dump());
+}
+
+Json HandleImpactAnalysis(const McpServerOptions& options, const Json& arguments) {
+    if (options.impact_analyzer == nullptr) {
+        return ToolError("impact_analysis is not available (no ImpactAnalyzer configured)");
+    }
+    if (!arguments.contains("file_path") || !arguments["file_path"].is_string()) {
+        return ToolError("impact_analysis requires a string 'file_path' argument");
+    }
+    const auto result = options.impact_analyzer->Analyze(arguments["file_path"].get<std::string>());
+
+    Json affected_files = Json::array();
+    for (const auto& f : result.affected_files) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
+            continue;
+        }
+        affected_files.push_back(f);
+    }
+
+    Json affected_symbols = Json::array();
+    for (const auto& symbol : result.affected_symbols) {
+        Json callers = Json::array();
+        for (const auto& caller : symbol.callers) {
+            if (options.firewall != nullptr && !options.firewall->IsAllowed(caller.caller_file)) {
+                continue;
+            }
+            callers.push_back(Json{
+                {"caller_name", caller.caller_name},
+                {"caller_file", caller.caller_file},
+                {"line", caller.line},
+                {"callee_text", caller.callee_text},
+            });
+        }
+        affected_symbols.push_back(Json{{"symbol_name", symbol.symbol_name}, {"callers", callers}});
+    }
+
+    return TextContent(Json{
+        {"target_file", result.target_file},
+        {"affected_files", affected_files},
+        {"affected_symbols", affected_symbols},
+    }.dump());
+}
+
+Json HandleChangedImpactAnalysis(const McpServerOptions& options) {
+    if (options.impact_analyzer == nullptr || options.backend_registry == nullptr) {
+        return ToolError("changed_impact_analysis is not available (no ImpactAnalyzer/BackendRegistry configured)");
+    }
+
+    // "git.diff.head" (working tree vs HEAD), not "git.diff" -- it's
+    // the one GitBackend query whose new-side line numbers always
+    // match the actual current file content regardless of what's
+    // staged vs unstaged, which is what correlating against
+    // SymbolIndex needs (see GitBackend.hpp's own comment on Handle()).
+    Query query;
+    query.backend_id = "core.git";
+    query.name = "git.diff.head";
+    const auto diff_result = options.backend_registry->RunQuery(query);
+    if (!diff_result) {
+        return ToolError("changed_impact_analysis: git.diff.head query failed: " + diff_result.Err().message);
+    }
+    const auto diff_text = std::any_cast<std::string>(diff_result.Value());
+
+    const auto result = options.impact_analyzer->AnalyzeChanges(diff_text);
+
+    Json changed_files = Json::array();
+    for (const auto& f : result.changed_files) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
+            continue;
+        }
+        changed_files.push_back(f);
+    }
+
+    Json affected_files = Json::array();
+    for (const auto& f : result.affected_files) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
+            continue;
+        }
+        affected_files.push_back(f);
+    }
+
+    Json changed_symbols = Json::array();
+    for (const auto& symbol : result.changed_symbols) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(symbol.file_path)) {
+            continue;
+        }
+        Json callers = Json::array();
+        for (const auto& caller : symbol.callers) {
+            if (options.firewall != nullptr && !options.firewall->IsAllowed(caller.caller_file)) {
+                continue;
+            }
+            callers.push_back(Json{
+                {"caller_name", caller.caller_name},
+                {"caller_file", caller.caller_file},
+                {"line", caller.line},
+                {"callee_text", caller.callee_text},
+            });
+        }
+        changed_symbols.push_back(Json{
+            {"symbol_name", symbol.symbol_name},
+            {"kind", ToString(symbol.kind)},
+            {"file_path", symbol.file_path},
+            {"callers", callers},
+        });
+    }
+
+    return TextContent(Json{
+        {"changed_files", changed_files},
+        {"changed_symbols", changed_symbols},
+        {"affected_files", affected_files},
+    }.dump());
+}
+
+Json HandleProjectRules(const McpServerOptions& options) {
+    if (options.backend_registry == nullptr) {
+        return ToolError("project_rules is not available (no BackendRegistry configured)");
+    }
+
+    Query query;
+    query.backend_id = "core.project_rules";
+    query.name = "rules.get";
+    const auto result = options.backend_registry->RunQuery(query);
+    if (!result) {
+        return ToolError("project_rules: rules.get query failed: " + result.Err().message);
+    }
+    return TextContent(std::any_cast<std::string>(result.Value()));
+}
+
+Json HandleSimilarChangeSearch(const McpServerOptions& options, const Json& arguments) {
+    if (options.backend_registry == nullptr) {
+        return ToolError("similar_change_search is not available (no BackendRegistry configured)");
+    }
+    if (!arguments.contains("symbol_name") || !arguments["symbol_name"].is_string() ||
+        arguments["symbol_name"].get<std::string>().empty()) {
+        return ToolError("similar_change_search requires a non-empty string 'symbol_name' argument");
+    }
+    const auto symbol_name = arguments["symbol_name"].get<std::string>();
+
+    Query log_query;
+    log_query.backend_id = "core.git";
+    log_query.name = "git.log.symbol";
+    log_query.parameters = std::any(symbol_name);
+    const auto log_result = options.backend_registry->RunQuery(log_query);
+    if (!log_result) {
+        return ToolError("similar_change_search: git.log.symbol query failed: " + log_result.Err().message);
+    }
+    const auto commits = std::any_cast<std::vector<GitCommitEntry>>(log_result.Value());
+
+    constexpr std::size_t kMaxCommits = 5;
+    constexpr std::size_t kMaxDiffChars = 4000;
+    Json commit_list = Json::array();
+    for (std::size_t i = 0; i < commits.size() && i < kMaxCommits; ++i) {
+        const auto& commit = commits[i];
+
+        std::string diff_text;
+        Query show_query;
+        show_query.backend_id = "core.git";
+        show_query.name = "git.show";
+        show_query.parameters = std::any(commit.sha);
+        if (const auto show_result = options.backend_registry->RunQuery(show_query); show_result) {
+            diff_text = std::any_cast<std::string>(show_result.Value());
+        }
+        if (diff_text.size() > kMaxDiffChars) {
+            // Utf8SafeTruncationLength, not a raw resize(kMaxDiffChars)
+            // -- see Core/Git/GitBackend.cpp's identical fix
+            // (docs/ROADMAP.md CE-5) for why a naive byte-count cut
+            // can produce invalid UTF-8 here.
+            diff_text.resize(Utf8SafeTruncationLength(diff_text, kMaxDiffChars));
+            diff_text += "\n... [truncated]";
+        }
+
+        commit_list.push_back(Json{
+            {"sha", commit.sha},
+            {"date", commit.date},
+            {"subject", commit.subject},
+            {"diff", diff_text},
+        });
+    }
+
+    return TextContent(Json{{"symbol_name", symbol_name}, {"commits", commit_list}}.dump());
+}
+
+Json HandleBranchImpactAnalysis(const McpServerOptions& options, const Json& arguments) {
+    if (options.impact_analyzer == nullptr || options.backend_registry == nullptr) {
+        return ToolError("branch_impact_analysis is not available (no ImpactAnalyzer/BackendRegistry configured)");
+    }
+    if (!arguments.contains("base_branch") || !arguments["base_branch"].is_string() ||
+        arguments["base_branch"].get<std::string>().empty()) {
+        return ToolError("branch_impact_analysis requires a non-empty string 'base_branch' argument");
+    }
+    const auto base_branch = arguments["base_branch"].get<std::string>();
+
+    Query query;
+    query.backend_id = "core.git";
+    query.name = "git.diff.branch";
+    query.parameters = std::any(base_branch);
+    const auto diff_result = options.backend_registry->RunQuery(query);
+    if (!diff_result) {
+        return ToolError("branch_impact_analysis: git.diff.branch query failed: " + diff_result.Err().message);
+    }
+    const auto diff_text = std::any_cast<std::string>(diff_result.Value());
+
+    const auto result = options.impact_analyzer->AnalyzeChanges(diff_text);
+
+    Json changed_files = Json::array();
+    for (const auto& f : result.changed_files) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
+            continue;
+        }
+        changed_files.push_back(f);
+    }
+
+    Json affected_files = Json::array();
+    for (const auto& f : result.affected_files) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(f)) {
+            continue;
+        }
+        affected_files.push_back(f);
+    }
+
+    Json changed_symbols = Json::array();
+    for (const auto& symbol : result.changed_symbols) {
+        if (options.firewall != nullptr && !options.firewall->IsAllowed(symbol.file_path)) {
+            continue;
+        }
+        Json callers = Json::array();
+        for (const auto& caller : symbol.callers) {
+            if (options.firewall != nullptr && !options.firewall->IsAllowed(caller.caller_file)) {
+                continue;
+            }
+            callers.push_back(Json{
+                {"caller_name", caller.caller_name},
+                {"caller_file", caller.caller_file},
+                {"line", caller.line},
+                {"callee_text", caller.callee_text},
+            });
+        }
+        changed_symbols.push_back(Json{
+            {"symbol_name", symbol.symbol_name},
+            {"kind", ToString(symbol.kind)},
+            {"file_path", symbol.file_path},
+            {"callers", callers},
+        });
+    }
+
+    return TextContent(Json{
+        {"base_branch", base_branch},
+        {"changed_files", changed_files},
+        {"changed_symbols", changed_symbols},
+        {"affected_files", affected_files},
+    }.dump());
+}
+
+Json HandleGitWriteCommand(const McpServerOptions& options, const std::string& name, const Json& arguments) {
+    if (options.backend_registry == nullptr || !options.enable_git_write_commands) {
+        return ToolError(name + " is not available (git write commands are disabled -- see "
+                                 "mcp.enable_git_write_commands)");
+    }
+
+    Command command;
+    command.backend_id = "core.git";
+    if (name == "git_commit") {
+        if (!arguments.contains("message") || !arguments["message"].is_string() ||
+            arguments["message"].get<std::string>().empty()) {
+            return ToolError("git_commit requires a non-empty string 'message' argument");
+        }
+        command.name = "git.commit";
+        command.payload = std::any(arguments["message"].get<std::string>());
+    } else if (name == "git_branch") {
+        if (!arguments.contains("name") || !arguments["name"].is_string() ||
+            arguments["name"].get<std::string>().empty()) {
+            return ToolError("git_branch requires a non-empty string 'name' argument");
+        }
+        command.name = "git.branch";
+        command.payload = std::any(arguments["name"].get<std::string>());
+    } else if (name == "git_checkout") {
+        if (!arguments.contains("branch") || !arguments["branch"].is_string() ||
+            arguments["branch"].get<std::string>().empty()) {
+            return ToolError("git_checkout requires a non-empty string 'branch' argument");
+        }
+        command.name = "git.checkout";
+        command.payload = std::any(arguments["branch"].get<std::string>());
+    } else if (name == "git_tag") {
+        if (!arguments.contains("name") || !arguments["name"].is_string() ||
+            arguments["name"].get<std::string>().empty()) {
+            return ToolError("git_tag requires a non-empty string 'name' argument");
+        }
+        command.name = "git.tag";
+        command.payload = std::any(arguments["name"].get<std::string>());
+    } else {
+        command.name = "git.stash";
+        if (arguments.contains("message") && arguments["message"].is_string()) {
+            command.payload = std::any(arguments["message"].get<std::string>());
+        }
+    }
+
+    const auto result = options.backend_registry->Dispatch(command);
+    if (!result) {
+        return ToolError(name + " failed: " + result.Err().message);
+    }
+    return TextContent(std::any_cast<std::string>(result.Value()));
+}
+
+Json HandleActiveDocument(const McpServerOptions& options) {
+    if (options.editor_state_store == nullptr) {
+        return ToolError("active_document is not available (no EditorStateStore configured)");
+    }
+
+    const auto state = options.editor_state_store->Read();
+    if (!state.has_value()) {
+        // No IDE extension currently reporting -- a normal condition
+        // (matches textDocument/definition's own "well-formed null
+        // result, not an error" convention for LspServer.cpp), not a
+        // tool failure.
+        return TextContent(Json{{"active_document_path", nullptr}, {"selection", nullptr}}.dump());
+    }
+
+    Json result = Json{
+        {"source", state->source},
+        {"active_document_path",
+         state->active_document_path.has_value() ? Json(*state->active_document_path) : Json(nullptr)},
+        {"updated_at", state->updated_at},
+    };
+    if (state->selection.has_value()) {
+        result["selection"] = Json{
+            {"start_line", state->selection->start_line},
+            {"start_character", state->selection->start_character},
+            {"end_line", state->selection->end_line},
+            {"end_character", state->selection->end_character},
+        };
+    } else {
+        result["selection"] = nullptr;
+    }
+    return TextContent(result.dump());
+}
+
+Json CallTool(const McpServerOptions& options, const std::string& name, const Json& arguments) {
+    if (!ToolEnabled(options, name)) {
+        return ToolError(name + " is not enabled on this server (see mcp.tools)");
+    }
+    if (name == "symbol_search") {
+        return HandleSymbolSearch(options, arguments);
+    }
+    if (name == "keyword_search") {
+        return HandleKeywordSearch(options, arguments);
+    }
+    if (name == "context_retrieve") {
+        return HandleContextRetrieve(options, arguments);
+    }
+    if (name == "context_fetch") {
+        return HandleContextFetch(options, arguments);
+    }
+    if (name == "include_graph") {
+        return HandleIncludeGraph(options, arguments);
+    }
+    if (name == "call_graph") {
+        return HandleCallGraph(options, arguments);
+    }
+    if (name == "inheritance_graph") {
+        return HandleInheritanceGraph(options, arguments);
+    }
+    if (name == "reference_graph") {
+        return HandleReferenceGraph(options, arguments);
+    }
+    if (name == "ast_tree") {
+        return HandleAstTree(options, arguments);
+    }
+    if (name == "impact_analysis") {
+        return HandleImpactAnalysis(options, arguments);
+    }
+    if (name == "changed_impact_analysis") {
+        return HandleChangedImpactAnalysis(options);
+    }
+    if (name == "project_rules") {
+        return HandleProjectRules(options);
+    }
+    if (name == "similar_change_search") {
+        return HandleSimilarChangeSearch(options, arguments);
+    }
+    if (name == "branch_impact_analysis") {
+        return HandleBranchImpactAnalysis(options, arguments);
+    }
     if (name == "git_commit" || name == "git_branch" || name == "git_stash" || name == "git_checkout" ||
         name == "git_tag") {
-        if (options.backend_registry == nullptr || !options.enable_git_write_commands) {
-            return ToolError(name + " is not available (git write commands are disabled -- see "
-                                     "mcp.enable_git_write_commands)");
-        }
-
-        Command command;
-        command.backend_id = "core.git";
-        if (name == "git_commit") {
-            if (!arguments.contains("message") || !arguments["message"].is_string() ||
-                arguments["message"].get<std::string>().empty()) {
-                return ToolError("git_commit requires a non-empty string 'message' argument");
-            }
-            command.name = "git.commit";
-            command.payload = std::any(arguments["message"].get<std::string>());
-        } else if (name == "git_branch") {
-            if (!arguments.contains("name") || !arguments["name"].is_string() ||
-                arguments["name"].get<std::string>().empty()) {
-                return ToolError("git_branch requires a non-empty string 'name' argument");
-            }
-            command.name = "git.branch";
-            command.payload = std::any(arguments["name"].get<std::string>());
-        } else if (name == "git_checkout") {
-            if (!arguments.contains("branch") || !arguments["branch"].is_string() ||
-                arguments["branch"].get<std::string>().empty()) {
-                return ToolError("git_checkout requires a non-empty string 'branch' argument");
-            }
-            command.name = "git.checkout";
-            command.payload = std::any(arguments["branch"].get<std::string>());
-        } else if (name == "git_tag") {
-            if (!arguments.contains("name") || !arguments["name"].is_string() ||
-                arguments["name"].get<std::string>().empty()) {
-                return ToolError("git_tag requires a non-empty string 'name' argument");
-            }
-            command.name = "git.tag";
-            command.payload = std::any(arguments["name"].get<std::string>());
-        } else {
-            command.name = "git.stash";
-            if (arguments.contains("message") && arguments["message"].is_string()) {
-                command.payload = std::any(arguments["message"].get<std::string>());
-            }
-        }
-
-        const auto result = options.backend_registry->Dispatch(command);
-        if (!result) {
-            return ToolError(name + " failed: " + result.Err().message);
-        }
-        return TextContent(std::any_cast<std::string>(result.Value()));
+        return HandleGitWriteCommand(options, name, arguments);
     }
-
     if (name == "active_document") {
-        if (options.editor_state_store == nullptr) {
-            return ToolError("active_document is not available (no EditorStateStore configured)");
-        }
-
-        const auto state = options.editor_state_store->Read();
-        if (!state.has_value()) {
-            // No IDE extension currently reporting -- a normal condition
-            // (matches textDocument/definition's own "well-formed null
-            // result, not an error" convention for LspServer.cpp), not a
-            // tool failure.
-            return TextContent(Json{{"active_document_path", nullptr}, {"selection", nullptr}}.dump());
-        }
-
-        Json result = Json{
-            {"source", state->source},
-            {"active_document_path",
-             state->active_document_path.has_value() ? Json(*state->active_document_path) : Json(nullptr)},
-            {"updated_at", state->updated_at},
-        };
-        if (state->selection.has_value()) {
-            result["selection"] = Json{
-                {"start_line", state->selection->start_line},
-                {"start_character", state->selection->start_character},
-                {"end_line", state->selection->end_line},
-                {"end_character", state->selection->end_character},
-            };
-        } else {
-            result["selection"] = nullptr;
-        }
-        return TextContent(result.dump());
+        return HandleActiveDocument(options);
     }
-
     return ToolError("unknown tool: " + name);
 }
 

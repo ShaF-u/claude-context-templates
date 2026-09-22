@@ -318,6 +318,7 @@ int RunMcpMode() {
         // is running (EditorStateStore::Read() returns nullopt) -- exact
         // pre-existing behavior.
         .editor_state_store = &editor_state_store,
+        .extra_ignore_patterns = extra_ignore_patterns,
         // Safe here, and only here, because the FileWatcher below drives
         // InvalidateScan() -- see Options::cache_scan.
         .cache_scan = true,

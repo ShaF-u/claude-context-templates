@@ -122,6 +122,54 @@ std::vector<std::string> StemVariants(const std::string& token) {
     return variants;
 }
 
+// Whitespace-delimited chunks of the intent that carry punctuation
+// INSIDE them -- "tools/call", "std::vector", "foo->bar", "a.b.c".
+// TokenizeIntent splits those apart, which is right for symbol names but
+// loses the thing itself: "tools/call" occurs verbatim in the one line
+// that dispatches a tools/call request, while its halves occur in
+// hundreds of lines. Keyword retrieval searches these as written.
+// KeywordPriority's own ceiling caps what this can win.
+constexpr int kPhraseHitBonus = 40;
+
+std::vector<std::string> IntentPhrases(const std::string& intent) {
+    std::vector<std::string> phrases;
+    std::string current;
+    const auto flush = [&]() {
+        // Trim punctuation at the ends (sentence commas, quotes); what is
+        // left must still contain punctuation to be a phrase rather than a
+        // plain token TokenizeIntent already covers.
+        const auto is_word = [](unsigned char c) { return std::isalnum(c) != 0 || c == '_'; };
+        std::size_t first = 0;
+        while (first < current.size() && !is_word(static_cast<unsigned char>(current[first]))) {
+            ++first;
+        }
+        std::size_t last = current.size();
+        while (last > first && !is_word(static_cast<unsigned char>(current[last - 1]))) {
+            --last;
+        }
+        const std::string trimmed = current.substr(first, last - first);
+        current.clear();
+        if (trimmed.size() < 4) {
+            return;
+        }
+        const bool has_punctuation =
+            std::any_of(trimmed.begin(), trimmed.end(),
+                        [&](char c) { return !is_word(static_cast<unsigned char>(c)); });
+        if (has_punctuation && std::find(phrases.begin(), phrases.end(), trimmed) == phrases.end()) {
+            phrases.push_back(trimmed);
+        }
+    };
+    for (const char c : intent) {
+        if (std::isspace(static_cast<unsigned char>(c)) != 0) {
+            flush();
+        } else {
+            current.push_back(c);
+        }
+    }
+    flush();
+    return phrases;
+}
+
 std::vector<std::string> TokenizeIntent(const std::string& intent) {
     std::vector<std::string> tokens;
     std::string current;
@@ -307,11 +355,27 @@ bool LooksLikeTestFile(const std::string& path) {
            path.find("test_") != std::string::npos;
 }
 
-// Keyword match tiers land in 15-35 — see KeywordSearch.cpp for
-// KeywordMatch::score's own range (occurrence count * 10, +5 whole-word
-// bonus).
-int KeywordPriority(int score) {
-    return std::clamp(score, 15, 35);
+// Ordinary keyword match tiers land in 15-35 — see KeywordSearch.cpp
+// for KeywordMatch::score's own range (occurrence count * 10, +5
+// whole-word bonus). A phrase hit (see IntentPhrases) is allowed past
+// that ceiling, up to the Symbol tier's floor: it is the most specific
+// evidence available -- the intent's own punctuated string, found
+// verbatim in the source -- and at 35 it lost every slot to symbols that
+// merely shared a common word.
+int KeywordPriority(int rank) {
+    return std::clamp(rank, 15, rank >= kPhraseHitBonus ? 60 : 35);
+}
+
+// A keyword match plus where the query that found it came from. Phrase
+// hits are ranked above every ordinary hit rather than by occurrence
+// count, which is what "specific" means here.
+struct KeywordHit {
+    KeywordMatch match;
+    bool from_phrase = false;
+};
+
+int HitRank(const KeywordHit& hit) {
+    return hit.match.score + (hit.from_phrase ? kPhraseHitBonus : 0);
 }
 
 // A file path lower-cased once per Retrieve() (not once per token as
@@ -401,6 +465,28 @@ private:
     const IncludeGraph* include_graph_;
 };
 
+// How many DISTINCT intent tokens a file's path/name matches. A file
+// named after two of the intent's words is what the question is about:
+// "how the MCP server dispatches a tools/call request" is asked of
+// McpServer.cpp, but no symbol in it is called "dispatch" (the symbols
+// that are -- BackendRegistry::Dispatch and friends -- answer a
+// different question). Measured on this repository (2026-09-22), that
+// intent returned five unrelated Dispatch functions and never CallTool.
+// Only counts from the second matched token on, so a file matching one
+// ordinary word gains nothing.
+constexpr int kFileAffinityBonus = 12;
+constexpr int kMaxFileAffinityTokens = 3;
+
+int FileAffinity(const LoweredPath& path, const std::vector<std::string>& lower_tokens) {
+    int matched = 0;
+    for (const auto& token : lower_tokens) {
+        if (FilePathScore(path, token) > 0) {
+            ++matched;
+        }
+    }
+    return kFileAffinityBonus * std::min(std::max(matched - 1, 0), kMaxFileAffinityTokens - 1);
+}
+
 } // namespace
 
 std::optional<std::string> ContextRetriever::CurrentActiveDocumentPath() const {
@@ -425,7 +511,7 @@ std::shared_ptr<ContextRetriever::ScanSnapshot> ContextRetriever::ScanProject() 
     }
 
     auto snapshot = std::make_shared<ScanSnapshot>();
-    const FileScanner scanner;
+    const FileScanner scanner(FileScanner::MakeOptions(options_.extra_ignore_patterns));
     auto scan_result = scanner.Scan(options_.project_root, &snapshot->contents);
     if (!scan_result) {
         return nullptr;
@@ -489,11 +575,25 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
     // effect of the scan, so every read below comes from memory.
     const auto snapshot = options_.project_root.empty() ? nullptr : ScanProject();
     std::unordered_map<std::string, const FileMetadata*> metadata_by_path;
+    std::vector<std::string> lower_tokens;
+    lower_tokens.reserve(intent_tokens.size());
+    for (const auto& token : intent_tokens) {
+        lower_tokens.push_back(ToLower(token));
+    }
+    std::unordered_map<std::string, LoweredPath> lowered_by_path;
+    std::unordered_map<std::string, int> affinity_by_path;
     if (snapshot != nullptr) {
         for (const auto& metadata : snapshot->files) {
             metadata_by_path.emplace(metadata.path, &metadata);
+            auto lowered = LowerPath(metadata.path);
+            affinity_by_path.emplace(metadata.path, FileAffinity(lowered, lower_tokens));
+            lowered_by_path.emplace(metadata.path, std::move(lowered));
         }
     }
+    const auto affinity_of = [&](const std::string& file_path) {
+        const auto it = affinity_by_path.find(file_path);
+        return it == affinity_by_path.end() ? 0 : it->second;
+    };
 
     // Symbol retrieval: the strongest signal, so it runs first and
     // seeds `matched_files` for the coarser sources below to defer to.
@@ -571,6 +671,7 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
             if (LooksLikeTestFile(entry.match.symbol.file_path)) {
                 priority -= kTestFilePenalty;
             }
+            priority += affinity_of(entry.match.symbol.file_path);
             merged.emplace_back(std::clamp(priority, 35, 85), std::move(entry.match));
         }
         std::stable_sort(merged.begin(), merged.end(),
@@ -614,23 +715,18 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         // tried independently against every file path, keeping the best
         // score any single token achieved (see TokenizeIntent's comment).
         {
-            std::vector<std::string> lower_tokens;
-            lower_tokens.reserve(intent_tokens.size());
-            for (const auto& token : intent_tokens) {
-                lower_tokens.push_back(ToLower(token));
-            }
             std::vector<std::pair<int, const FileMetadata*>> scored;
             for (const auto& metadata : snapshot->files) {
                 if (matched_files.count(metadata.path) != 0 || !passes_firewall(metadata.path)) {
                     continue;
                 }
-                const LoweredPath lowered = LowerPath(metadata.path);
+                const LoweredPath& lowered = lowered_by_path.at(metadata.path);
                 int best_score = 0;
                 for (const auto& lower_token : lower_tokens) {
                     best_score = std::max(best_score, FilePathScore(lowered, lower_token));
                 }
                 if (best_score > 0) {
-                    scored.emplace_back(bias.Apply(best_score, metadata.path), &metadata);
+                    scored.emplace_back(bias.Apply(best_score + affinity_of(metadata.path), metadata.path), &metadata);
                 }
             }
             std::stable_sort(scored.begin(), scored.end(),
@@ -654,27 +750,51 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         // keeping the best score any single token achieved (see
         // TokenizeIntent's comment).
         {
+            // Punctuated phrases (see IntentPhrases) are searched
+            // alongside the plain tokens and their hits outrank them:
+            // "tools/call" occurs in exactly the line that dispatches it,
+            // while "tools" and "call" occur everywhere.
+            auto queries = intent_tokens;
+            const auto phrases = IntentPhrases(intent);
+            queries.insert(queries.end(), phrases.begin(), phrases.end());
+            const std::size_t first_phrase = intent_tokens.size();
+
             const KeywordSearch keyword_search;
-            std::unordered_map<std::string, KeywordMatch> best_by_line;
-            if (auto keyword_result = keyword_search.Search(snapshot->files, options_.project_root, intent_tokens,
+            std::unordered_map<std::string, KeywordHit> best_by_line;
+            if (auto keyword_result = keyword_search.Search(snapshot->files, options_.project_root, queries,
                                                             kNoPerTokenLimit, &snapshot->contents)) {
-                for (auto& per_token : keyword_result.Value()) {
-                    for (auto& match : per_token) {
+                auto& per_query = keyword_result.Value();
+                for (std::size_t q = 0; q < per_query.size(); ++q) {
+                    const bool from_phrase = q >= first_phrase;
+                    for (auto& match : per_query[q]) {
                         const std::string key = match.file_path + '\x1f' + std::to_string(match.line);
-                        auto [it, inserted] = best_by_line.try_emplace(key, match);
-                        if (!inserted && match.score > it->second.score) {
-                            it->second = match;
+                        KeywordHit hit{match, from_phrase};
+                        auto [it, inserted] = best_by_line.try_emplace(key, hit);
+                        if (!inserted && HitRank(hit) > HitRank(it->second)) {
+                            it->second = hit;
                         }
                     }
                 }
             }
-            std::vector<KeywordMatch> merged;
+            std::vector<KeywordHit> merged;
             merged.reserve(best_by_line.size());
-            for (auto& [key, match] : best_by_line) {
-                merged.push_back(std::move(match));
+            for (auto& [key, hit] : best_by_line) {
+                merged.push_back(std::move(hit));
             }
-            std::stable_sort(merged.begin(), merged.end(),
-                              [](const KeywordMatch& a, const KeywordMatch& b) { return a.score > b.score; });
+            // Ranked by what the item's priority will actually be --
+            // file affinity and the test-file penalty included -- because
+            // max_keyword_matches cuts the list here. Ranking on the raw
+            // score first made every phrase hit tie, and the cut then
+            // kept whichever ties came out of the hash map (measured
+            // 2026-09-22: the one line that dispatches a tools/call
+            // request lost its slot to a test that mentions it).
+            const auto hit_priority = [&](const KeywordHit& hit) {
+                int priority = KeywordPriority(HitRank(hit)) + affinity_of(hit.match.file_path);
+                return LooksLikeTestFile(hit.match.file_path) ? priority - kTestFilePenalty : priority;
+            };
+            std::stable_sort(merged.begin(), merged.end(), [&](const KeywordHit& a, const KeywordHit& b) {
+                return hit_priority(a) > hit_priority(b);
+            });
             if (merged.size() > options_.max_keyword_matches) {
                 merged.resize(options_.max_keyword_matches);
                 if (truncation != nullptr) {
@@ -693,34 +813,35 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                            match.line - kKeywordWindowLines <= range.last_line;
                 });
             };
-            std::vector<KeywordMatch> kept;
-            for (auto& match : merged) {
-                if (!passes_firewall(match.file_path) || already_visible(match)) {
+            std::vector<KeywordHit> kept;
+            for (auto& hit : merged) {
+                if (!passes_firewall(hit.match.file_path) || already_visible(hit.match)) {
                     continue;
                 }
-                kept.push_back(std::move(match));
+                kept.push_back(std::move(hit));
             }
             // Group by file, in line order, so neighbouring hits merge.
-            std::stable_sort(kept.begin(), kept.end(), [](const KeywordMatch& a, const KeywordMatch& b) {
-                return a.file_path != b.file_path ? a.file_path < b.file_path : a.line < b.line;
+            std::stable_sort(kept.begin(), kept.end(), [](const KeywordHit& a, const KeywordHit& b) {
+                return a.match.file_path != b.match.file_path ? a.match.file_path < b.match.file_path
+                                                              : a.match.line < b.match.line;
             });
             for (std::size_t i = 0; i < kept.size();) {
-                const auto& first = kept[i];
+                const auto& first = kept[i].match;
                 int window_first = std::max(1, first.line - kKeywordWindowLines);
                 int window_last = first.line + kKeywordWindowLines;
-                int best_score = first.score;
+                int best_rank = HitRank(kept[i]);
                 std::size_t j = i + 1;
-                while (j < kept.size() && kept[j].file_path == first.file_path &&
-                       kept[j].line - kKeywordWindowLines <= window_last) {
-                    window_last = kept[j].line + kKeywordWindowLines;
-                    best_score = std::max(best_score, kept[j].score);
+                while (j < kept.size() && kept[j].match.file_path == first.file_path &&
+                       kept[j].match.line - kKeywordWindowLines <= window_last) {
+                    window_last = kept[j].match.line + kKeywordWindowLines;
+                    best_rank = std::max(best_rank, HitRank(kept[j]));
                     ++j;
                 }
 
                 ContextItem item;
                 item.id = "keyword:" + first.file_path + ":" + std::to_string(first.line);
                 item.source = ContextSourceKind::Custom;
-                int priority = KeywordPriority(best_score);
+                int priority = KeywordPriority(best_rank) + affinity_of(first.file_path);
                 if (LooksLikeTestFile(first.file_path)) {
                     priority = std::max(0, priority - kTestFilePenalty);
                 }
