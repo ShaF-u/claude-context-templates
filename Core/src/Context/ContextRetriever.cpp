@@ -9,6 +9,7 @@
 #include "Core/Util/Utf8.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
@@ -249,6 +250,71 @@ constexpr std::uint64_t kInlineFileMaxBytes = 6144;
 // filename substring, 60 = exact) rather than on an enclosing directory
 // (25). See the File retrieval block in Retrieve().
 constexpr int kInlineFileMinPathScore = 45;
+
+// Filenames that would be the other half of this translation unit:
+// Foo.hpp -> {Foo.cpp, Foo.cc, ...} and back. Matched by FILENAME, not
+// by rewriting the directory, because where a project puts headers
+// versus sources is its own business (this one splits Core/include/Core/
+// from Core/src/) and guessing a layout gets it wrong somewhere else.
+//
+// A header answers "what is this" and its implementation answers "how
+// does it work"; an intent phrased as "how does X work" wants both.
+// Sending one and making the caller fetch the other costs a whole extra
+// turn -- measured 2026-09-22: a retrieval that inlined
+// AstContextSource.hpp was followed by a context_fetch of
+// AstContextSource.cpp, and that turn re-sent the whole conversation.
+std::vector<std::string> SiblingFileNames(const std::string& path) {
+    static const std::array<std::string_view, 4> kHeaderExtensions{".hpp", ".h", ".hh", ".hxx"};
+    static const std::array<std::string_view, 4> kSourceExtensions{".cpp", ".cc", ".cxx", ".c"};
+
+    const auto slash = path.find_last_of("/\\");
+    const std::string file_name = slash == std::string::npos ? path : path.substr(slash + 1);
+    const auto dot = file_name.rfind('.');
+    if (dot == std::string::npos) {
+        return {};
+    }
+    const std::string stem = file_name.substr(0, dot);
+    const std::string_view extension(file_name.data() + dot, file_name.size() - dot);
+
+    const bool is_header = std::find(kHeaderExtensions.begin(), kHeaderExtensions.end(), extension) !=
+                            kHeaderExtensions.end();
+    const bool is_source = std::find(kSourceExtensions.begin(), kSourceExtensions.end(), extension) !=
+                            kSourceExtensions.end();
+    if (!is_header && !is_source) {
+        return {};
+    }
+
+    std::vector<std::string> names;
+    for (const auto& wanted : is_header ? kSourceExtensions : kHeaderExtensions) {
+        names.push_back(stem + std::string(wanted));
+    }
+    return names;
+}
+
+// Of the files sharing a name with one of `names`, the one whose path
+// shares the longest prefix with `origin` -- the sibling next door, not
+// a same-named file in an unrelated directory.
+const FileMetadata* FindSibling(const std::string& origin, const std::vector<std::string>& names,
+                                const std::vector<FileMetadata>& files) {
+    const FileMetadata* best = nullptr;
+    std::size_t best_shared = 0;
+    for (const auto& metadata : files) {
+        const auto slash = metadata.path.find_last_of("/\\");
+        const std::string file_name = slash == std::string::npos ? metadata.path : metadata.path.substr(slash + 1);
+        if (std::find(names.begin(), names.end(), file_name) == names.end()) {
+            continue;
+        }
+        std::size_t shared = 0;
+        while (shared < origin.size() && shared < metadata.path.size() && origin[shared] == metadata.path[shared]) {
+            ++shared;
+        }
+        if (best == nullptr || shared > best_shared) {
+            best = &metadata;
+            best_shared = shared;
+        }
+    }
+    return best;
+}
 
 // Backend Context Provider items are capped at this priority — see the
 // Backend retrieval block in Retrieve().
@@ -779,16 +845,39 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 auto content = worth_inlining
                                    ? FileContent(entry.metadata->path, snapshot->contents, metadata_by_path)
                                    : std::nullopt;
-                if (content.has_value()) {
+                const bool inlined = content.has_value();
+                if (inlined) {
                     // The whole file is in the response, so Keyword
                     // retrieval below must not bill a window of it again
                     // as a separate item -- unlike a symbol body, which
                     // covers only its own lines (see CoveredRange).
                     covered.push_back({entry.metadata->path, 1, std::numeric_limits<int>::max()});
                 }
-                add_item(content.has_value()
-                             ? MakeFileContextItem(*entry.metadata, *std::move(content), entry.priority)
-                             : MakeFileContextItem(*entry.metadata, entry.priority));
+                add_item(inlined ? MakeFileContextItem(*entry.metadata, *std::move(content), entry.priority)
+                                 : MakeFileContextItem(*entry.metadata, entry.priority));
+
+                // The other half of the translation unit rides along at a
+                // slightly lower priority (see SiblingFileNames) rather
+                // than costing a follow-up call. It does not consume one
+                // of max_file_matches: it is the same unit of code, not
+                // another match.
+                if (!inlined) {
+                    continue;
+                }
+                const auto* sibling =
+                    FindSibling(entry.metadata->path, SiblingFileNames(entry.metadata->path), snapshot->files);
+                if (sibling == nullptr || seen_ids.count(sibling->path) != 0 ||
+                    matched_files.count(sibling->path) != 0 || !passes_firewall(sibling->path) ||
+                    sibling->size > kInlineFileMaxBytes || LooksLikeTestFile(sibling->path)) {
+                    continue;
+                }
+                auto sibling_content = FileContent(sibling->path, snapshot->contents, metadata_by_path);
+                if (!sibling_content.has_value()) {
+                    continue;
+                }
+                covered.push_back({sibling->path, 1, std::numeric_limits<int>::max()});
+                add_item(MakeFileContextItem(*sibling, *std::move(sibling_content),
+                                              std::max(0, entry.priority - 1)));
             }
         }
 
