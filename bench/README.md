@@ -64,8 +64,14 @@ node bench/run.mjs
 ```
 BENCH_SAMPLE=2 node bench/run.mjs                              # 先頭2タスクだけ
 BENCH_TASKS=security-sandbox,database-migrations node bench/run.mjs  # idで指定
+BENCH_REPEAT=3 node bench/run.mjs                              # 各サイド3回走らせて中央値を比較
 BENCH_MODEL=sonnet node bench/run.mjs                          # モデルを固定して経時比較しやすくする
 ```
+
+**`BENCH_REPEAT=1`(既定)の単発比較で変更の良し悪しを判断しないこと。** 同じタスクを
+同じ設定で走らせても、naive側で最大3.9倍・core側で最大6.5倍ぶれる（モデルの探索経路が
+非決定的なため。`bench/results/`の履歴で確認済み、2026-09-22）。10〜30%の差は
+このノイズに完全に埋もれる。効果を見るなら `BENCH_REPEAT=3` 以上。
 
 結果JSONはタスクが1つ終わるごとに上書き保存される（`complete: false`）。利用枠の上限で
 `claude`がexit 1して途中で落ちても、そこまでの結果は残る。

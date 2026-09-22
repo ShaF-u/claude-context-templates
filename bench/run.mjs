@@ -16,6 +16,7 @@ const tasksPath = path.join(__dirname, 'tasks.json');
 const sample = Number(process.env.BENCH_SAMPLE) || Infinity;
 const onlyIds = process.env.BENCH_TASKS ? process.env.BENCH_TASKS.split(',').map((s) => s.trim()).filter(Boolean) : null;
 const model = process.env.BENCH_MODEL || undefined; // e.g. "sonnet" — pin for comparable runs across time
+const repeat = Math.max(1, Number(process.env.BENCH_REPEAT) || 1); // runs per side; the median is compared
 
 if (!existsSync(cliPath)) {
   console.error(`Core CLI not found at ${cliPath}.`);
@@ -59,18 +60,37 @@ function promptFor(intent) {
     'Do not write or run any code, just investigate and answer.';
 }
 
-console.log(`Running ${tasks.length}/${allTasks.length} task(s) x 2 real Claude runs each. This costs real usage.\n`);
+console.log(`Running ${tasks.length}/${allTasks.length} task(s) x ${2 * repeat} real Claude runs each. This costs real usage.\n`);
+
+// The same task run twice differs by up to 3.9x on the naive side and
+// 6.5x on the core side (measured over this repository's own result
+// history, 2026-09-22): the model's exploration path is not
+// deterministic, so a single pair per task measures the run, not the
+// change. Each side is run `repeat` times and the MEDIAN run is what
+// gets compared -- median rather than mean because the long tail is one
+// run where the model kept going, not a shift in the distribution.
+function medianRun(runs) {
+  const sorted = [...runs].sort((a, b) => a.contextTokens - b.contextTokens);
+  return sorted[Math.floor((sorted.length - 1) / 2)];
+}
+
+function runSide(label, task, prompt, mcpConfig, tools) {
+  const runs = [];
+  for (let i = 0; i < repeat; i++) {
+    process.stdout.write(`[${task.id}] ${label}${repeat > 1 ? ` ${i + 1}/${repeat}` : ''}... `);
+    const run = runHeadless({ cwd: repoRoot, prompt, mcpConfig, tools, model });
+    console.log(`${run.contextTokens}t ($${run.costUsd.toFixed(3)})`);
+    runs.push(run);
+  }
+  const median = medianRun(runs);
+  return repeat > 1 ? { ...median, runs: runs.map((r) => r.contextTokens) } : median;
+}
 
 const results = [];
 for (const task of tasks) {
   const prompt = promptFor(task.intent);
-  process.stdout.write(`[${task.id}] naive... `);
-  const naive = runHeadless({ cwd: repoRoot, prompt, mcpConfig: naiveMcpConfig, tools: NAIVE_TOOLS, model });
-  console.log(`${naive.contextTokens}t ($${naive.costUsd.toFixed(3)})`);
-
-  process.stdout.write(`[${task.id}] core...  `);
-  const core = runHeadless({ cwd: repoRoot, prompt, mcpConfig: coreMcpConfig, tools: CORE_TOOLS, model });
-  console.log(`${core.contextTokens}t ($${core.costUsd.toFixed(3)})`);
+  const naive = runSide('naive', task, prompt, naiveMcpConfig, NAIVE_TOOLS);
+  const core = runSide('core ', task, prompt, coreMcpConfig, CORE_TOOLS);
 
   // Three views of the same pair of runs:
   //   cumulative — every turn's context summed (what the API billed).
