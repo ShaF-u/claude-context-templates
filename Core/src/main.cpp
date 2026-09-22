@@ -221,6 +221,32 @@ int RunMcpMode() {
     // Opt-in like the budget above: unset = every tool (see
     // McpServerOptions::tool_allowlist for why a host would narrow it).
     const auto tool_allowlist = SplitStringList(config.GetOr("mcp.tools", ""));
+
+    // How many matches each retrieval tier contributes to one
+    // context_retrieve response. These, not the token budget, are what
+    // actually bounds a response once the budget is generous (measured
+    // 2026-09-22: budgets of 8000 and 16000 produced byte-identical
+    // responses). Exposed so the trade -- more context per call versus
+    // fewer follow-up calls -- can be measured without a rebuild.
+    const auto read_count = [&config](const std::string& key, std::size_t fallback) {
+        const auto raw = config.Get(key);
+        if (!raw.has_value()) {
+            return fallback;
+        }
+        try {
+            const auto value = std::stoll(*raw);
+            if (value > 0) {
+                return static_cast<std::size_t>(value);
+            }
+        } catch (const std::exception&) {
+        }
+        AISTUDIO_LOG_WARN("Core.MCP", key + " is not a positive number: '" + *raw + "' (ignored)");
+        return fallback;
+    };
+    const ContextRetriever::Options retrieval_defaults;
+    const auto max_symbol_matches = read_count("mcp.max_symbol_matches", retrieval_defaults.max_symbol_matches);
+    const auto max_file_matches = read_count("mcp.max_file_matches", retrieval_defaults.max_file_matches);
+    const auto max_keyword_matches = read_count("mcp.max_keyword_matches", retrieval_defaults.max_keyword_matches);
     const bool context_retrieve_plain_text = config.GetOr("mcp.context_retrieve_format", "json") == "text";
 
     // Opt-in (docs/ROADMAP.md CE-4): default false preserves the exact
@@ -318,6 +344,9 @@ int RunMcpMode() {
         // is running (EditorStateStore::Read() returns nullopt) -- exact
         // pre-existing behavior.
         .editor_state_store = &editor_state_store,
+        .max_symbol_matches = max_symbol_matches,
+        .max_file_matches = max_file_matches,
+        .max_keyword_matches = max_keyword_matches,
         .extra_ignore_patterns = extra_ignore_patterns,
         // Safe here, and only here, because the FileWatcher below drives
         // InvalidateScan() -- see Options::cache_scan.
