@@ -1,0 +1,203 @@
+{
+  "ranAt": "2026-09-22T14:52:48.634Z",
+  "model": "default",
+  "complete": true,
+  "results": [
+    {
+      "id": "context-selection-budget",
+      "intent": "how context items are ranked, compressed, and fit into a token budget",
+      "naive": {
+        "contextTokens": 117734,
+        "outputTokens": 2936,
+        "costUsd": 0.3059995,
+        "subagentsSpawned": 0,
+        "numTurns": 15,
+        "sessionId": "b26f984c-7efe-4a43-9e3d-aec90e792361",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 117734,
+            "outputTokens": 2936,
+            "costUsd": 0.3059995
+          }
+        },
+        "finalContextTokens": 23997,
+        "baseContextTokens": 7543,
+        "toolCalls": 14
+      },
+      "core": {
+        "contextTokens": 96856,
+        "outputTokens": 2166,
+        "costUsd": 0.348682,
+        "subagentsSpawned": 0,
+        "numTurns": 10,
+        "sessionId": "98065bfc-4eb6-4156-a48c-81f9d7267d27",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 96856,
+            "outputTokens": 2166,
+            "costUsd": 0.348682
+          }
+        },
+        "finalContextTokens": 25902,
+        "baseContextTokens": 6394,
+        "toolCalls": 9
+      },
+      "reductionPct": 17.733195168770276,
+      "finalReductionPct": -7.938492311538936,
+      "explorationReductionPct": -18.560836270815617
+    },
+    {
+      "id": "event-bus-pubsub",
+      "intent": "how the event bus publish/subscribe mechanism works",
+      "naive": {
+        "contextTokens": 41573,
+        "outputTokens": 1460,
+        "costUsd": 0.1290855,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "2e30f862-ce79-463e-b3bf-37c77523bad6",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 41573,
+            "outputTokens": 1460,
+            "costUsd": 0.1290855
+          }
+        },
+        "finalContextTokens": 13270,
+        "baseContextTokens": 7566,
+        "toolCalls": 6
+      },
+      "core": {
+        "contextTokens": 29436,
+        "outputTokens": 1759,
+        "costUsd": 0.132801,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "d0d4f1a5-672b-4959-b3dc-435c545f3e90",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 29436,
+            "outputTokens": 1759,
+            "costUsd": 0.132801
+          }
+        },
+        "finalContextTokens": 12365,
+        "baseContextTokens": 6417,
+        "toolCalls": 5
+      },
+      "reductionPct": 29.19442907656412,
+      "finalReductionPct": 6.819894498869628,
+      "explorationReductionPct": -4.277699859747552
+    },
+    {
+      "id": "session-handoff",
+      "intent": "how a session handoff is resumed between CLI tools",
+      "naive": {
+        "contextTokens": 83501,
+        "outputTokens": 2071,
+        "costUsd": 0.2147805,
+        "subagentsSpawned": 0,
+        "numTurns": 10,
+        "sessionId": "48876d40-56e6-4d50-a6ed-ca4a75c1fcec",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 83501,
+            "outputTokens": 2071,
+            "costUsd": 0.2147805
+          }
+        },
+        "finalContextTokens": 18474,
+        "baseContextTokens": 7565,
+        "toolCalls": 9
+      },
+      "core": {
+        "contextTokens": 48787,
+        "outputTokens": 1759,
+        "costUsd": 0.17652399999999996,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "a8f75313-4fcc-42d8-8e8a-d93c62cd8595",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 48787,
+            "outputTokens": 1759,
+            "costUsd": 0.17652399999999996
+          }
+        },
+        "finalContextTokens": 15948,
+        "baseContextTokens": 6416,
+        "toolCalls": 6
+      },
+      "reductionPct": 41.57315481251721,
+      "finalReductionPct": 13.673270542383886,
+      "explorationReductionPct": 12.622605188376568
+    },
+    {
+      "id": "context-cache-invalidation",
+      "intent": "how the context cache memoizes and invalidates retrieval results",
+      "naive": {
+        "contextTokens": 100387,
+        "outputTokens": 1993,
+        "costUsd": 0.284971,
+        "subagentsSpawned": 0,
+        "numTurns": 9,
+        "sessionId": "927e978a-08f6-45c5-8d31-22a4c521ec60",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 100387,
+            "outputTokens": 1993,
+            "costUsd": 0.284971
+          }
+        },
+        "finalContextTokens": 25179,
+        "baseContextTokens": 7568,
+        "toolCalls": 8
+      },
+      "core": {
+        "contextTokens": 74119,
+        "outputTokens": 1686,
+        "costUsd": 0.254501,
+        "subagentsSpawned": 0,
+        "numTurns": 9,
+        "sessionId": "a21f89d3-d2d2-4618-bb63-d5633a1dfdcf",
+        "byModel": {
+          "claude-opus-5": {
+            "contextTokens": 74119,
+            "outputTokens": 1686,
+            "costUsd": 0.254501
+          }
+        },
+        "finalContextTokens": 23014,
+        "baseContextTokens": 6419,
+        "toolCalls": 8
+      },
+      "reductionPct": 26.166734736569474,
+      "finalReductionPct": 8.598435203939792,
+      "explorationReductionPct": 5.769121571744929
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": 28.666878448605267,
+      "median": 27.680581906566797,
+      "min": 17.733195168770276,
+      "max": 41.57315481251721,
+      "n": 4
+    },
+    "final": {
+      "avg": 5.288276983413592,
+      "median": 7.70916485140471,
+      "min": -7.938492311538936,
+      "max": 13.673270542383886,
+      "n": 4
+    },
+    "exploration": {
+      "avg": -1.1117023426104184,
+      "median": 0.7457108559986882,
+      "min": -18.560836270815617,
+      "max": 12.622605188376568,
+      "n": 4
+    },
+    "totalCostUsd": 1.8473444999999997
+  }
+}
