@@ -31,6 +31,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 namespace aistudio::core {
@@ -385,9 +386,11 @@ Json ToolsList(const McpServerOptions& options) {
     if (!options.project_root.empty()) {
         tools.push_back(Json{
             {"name", "keyword_search"},
-            {"description", "grep: case-insensitive substring search over every source line, returns file:line "
-                             "hits. Use this to find WHERE something is used/called/checked (one call instead of "
-                             "fetching files by guessed line ranges); symbol_search for a definition by name."},
+            {"description", "grep: case-insensitive substring search over every source line. Use this to find "
+                             "WHERE something is used/called/checked (one call instead of fetching files by "
+                             "guessed line ranges); symbol_search for a definition by name. Few hits come back "
+                             "with their line text; many come back grouped as file + line numbers only (cheap to "
+                             "ask broadly first, then context_fetch the ranges worth reading)."},
             {"inputSchema",
              Json{
                  {"type", "object"},
@@ -758,16 +761,55 @@ Json HandleKeywordSearch(const McpServerOptions& options, const Json& arguments)
         return ToolError("keyword_search failed: " + result.Err().message);
     }
 
-    Json list = Json::array();
+    std::vector<const KeywordMatch*> allowed;
     for (const auto& match : result.Value()) {
-        if (options.firewall != nullptr && !options.firewall->IsAllowed(match.file_path)) {
-            continue;
+        if (options.firewall == nullptr || options.firewall->IsAllowed(match.file_path)) {
+            allowed.push_back(&match);
         }
+    }
+
+    // Past this many hits the caller is orienting ("where does `cache`
+    // live?"), not reading, and every hit's line text is dead weight it
+    // pays for on every later turn: measured on this repository
+    // (2026-09-22), one keyword_search of a common word opened a session
+    // with 9,200 characters while `grep -l` answered the same question in
+    // 2,300 and the session went on to read the same three files either
+    // way. Grouped by file with line numbers, the caller can still
+    // context_fetch any of them exactly.
+    constexpr std::size_t kGroupedHitThreshold = 12;
+    if (allowed.size() > kGroupedHitThreshold) {
+        std::vector<std::string> order;
+        std::unordered_map<std::string, std::vector<int>> lines_by_file;
+        for (const auto* match : allowed) {
+            auto [it, inserted] = lines_by_file.try_emplace(match->file_path);
+            if (inserted) {
+                order.push_back(match->file_path);
+            }
+            it->second.push_back(match->line);
+        }
+        Json files = Json::array();
+        for (const auto& file_path : order) {
+            files.push_back(Json{
+                {"file_path", file_path},
+                {"hits", lines_by_file[file_path].size()},
+                {"lines", lines_by_file[file_path]},
+            });
+        }
+        return TextContent(Json{
+            {"files", files},
+            {"total_hits", allowed.size()},
+            {"grouped", true},
+            {"hint", "many hits: file/line only. Narrow the query, or context_fetch a range around a line."},
+        }.dump());
+    }
+
+    Json list = Json::array();
+    for (const auto* match : allowed) {
         list.push_back(Json{
-            {"file_path", match.file_path},
-            {"line", match.line},
-            {"text", match.text},
-            {"score", match.score},
+            {"file_path", match->file_path},
+            {"line", match->line},
+            {"text", match->text},
+            {"score", match->score},
         });
     }
     return TextContent(Json{{"matches", list}}.dump());
