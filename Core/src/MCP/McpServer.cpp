@@ -191,6 +191,32 @@ std::string PlainTextRetrieveResponse(const ContextSelection& selection,
     return out;
 }
 
+// The longest run of identifier characters in `text` -- what a query
+// written as an expression (a member access, a call, a braced type)
+// was reaching for, once the punctuation around it is dropped. Empty
+// when the text is already one identifier (nothing to relax), or when
+// it contains none. Deliberately no example strings here: a comment
+// quoting a query makes that query match this file.
+std::string LongestIdentifier(const std::string& text) {
+    std::string longest;
+    std::string current;
+    const auto flush = [&]() {
+        if (current.size() > longest.size()) {
+            longest = current;
+        }
+        current.clear();
+    };
+    for (const unsigned char c : text) {
+        if (std::isalnum(c) != 0 || c == '_') {
+            current.push_back(static_cast<char>(c));
+        } else {
+            flush();
+        }
+    }
+    flush();
+    return longest.size() >= 3 ? longest : std::string();
+}
+
 std::size_t ReadMaxResults(const Json& arguments, std::size_t fallback) {
     // Deliberately is_number_integer() rather than is_number_unsigned():
     // nlohmann only tags a parsed number as "unsigned" once it's too big
@@ -726,8 +752,26 @@ Json HandleSymbolSearch(const McpServerOptions& options, const Json& arguments) 
     }
 
     const SymbolSearch search;
-    const auto matches =
-        search.Search(*options.symbol_index, arguments["query"].get<std::string>(), ReadMaxResults(arguments, 50));
+    const auto requested = arguments["query"].get<std::string>();
+    const auto max_results = ReadMaxResults(arguments, 50);
+    auto matches = search.Search(*options.symbol_index, requested, max_results);
+
+    // Same relaxation keyword_search does: a qualified or decorated
+    // name is not the bare name the index stores, and answering nothing
+    // costs the caller a turn.
+    std::string used = requested;
+    std::string relaxed_from;
+    if (matches.empty()) {
+        const auto identifier = LongestIdentifier(requested);
+        if (!identifier.empty() && identifier != requested) {
+            auto retry = search.Search(*options.symbol_index, identifier, max_results);
+            if (!retry.empty()) {
+                relaxed_from = requested;
+                used = identifier;
+                matches = std::move(retry);
+            }
+        }
+    }
 
     Json list = Json::array();
     for (const auto& match : matches) {
@@ -743,7 +787,12 @@ Json HandleSymbolSearch(const McpServerOptions& options, const Json& arguments) 
             {"score", match.score},
         });
     }
-    return TextContent(Json{{"matches", list}}.dump());
+    Json response{{"matches", list}};
+    if (!relaxed_from.empty()) {
+        response["searched_for"] = used;
+        response["relaxed_from"] = relaxed_from;
+    }
+    return TextContent(response.dump());
 }
 
 Json HandleKeywordSearch(const McpServerOptions& options, const Json& arguments) {
@@ -755,10 +804,32 @@ Json HandleKeywordSearch(const McpServerOptions& options, const Json& arguments)
     }
 
     const KeywordSearch search;
-    const auto result =
-        search.Search(options.project_root, arguments["query"].get<std::string>(), ReadMaxResults(arguments, 200));
+    const auto requested = arguments["query"].get<std::string>();
+    const auto max_results = ReadMaxResults(arguments, 200);
+    auto result = search.Search(options.project_root, requested, max_results);
     if (!result) {
         return ToolError("keyword_search failed: " + result.Err().message);
+    }
+
+    // A query written as an expression rather than as text matches no
+    // source line literally, and the empty answer costs the caller a
+    // whole turn before it tries again (measured 2026-09-22: three such
+    // turns in one session, each re-sending a 13k-token conversation, to
+    // be told nothing). The longest identifier inside the query is what
+    // it was reaching for, so that search is run here and the answer
+    // says what it actually searched for.
+    std::string used = requested;
+    std::string relaxed_from;
+    if (result.Value().empty()) {
+        const auto identifier = LongestIdentifier(requested);
+        if (!identifier.empty() && identifier != requested) {
+            auto retry = search.Search(options.project_root, identifier, max_results);
+            if (retry && !retry.Value().empty()) {
+                relaxed_from = requested;
+                used = identifier;
+                result = std::move(retry);
+            }
+        }
     }
 
     std::vector<const KeywordMatch*> allowed;
@@ -795,12 +866,17 @@ Json HandleKeywordSearch(const McpServerOptions& options, const Json& arguments)
                 {"lines", lines_by_file[file_path]},
             });
         }
-        return TextContent(Json{
+        Json response{
             {"files", files},
             {"total_hits", allowed.size()},
             {"grouped", true},
             {"hint", "many hits: file/line only. Narrow the query, or context_fetch a range around a line."},
-        }.dump());
+        };
+        if (!relaxed_from.empty()) {
+            response["searched_for"] = used;
+            response["relaxed_from"] = relaxed_from;
+        }
+        return TextContent(response.dump());
     }
 
     Json list = Json::array();
@@ -812,7 +888,12 @@ Json HandleKeywordSearch(const McpServerOptions& options, const Json& arguments)
             {"score", match->score},
         });
     }
-    return TextContent(Json{{"matches", list}}.dump());
+    Json response{{"matches", list}};
+    if (!relaxed_from.empty()) {
+        response["searched_for"] = used;
+        response["relaxed_from"] = relaxed_from;
+    }
+    return TextContent(response.dump());
 }
 
 Json HandleContextRetrieve(const McpServerOptions& options, const Json& arguments) {
