@@ -254,6 +254,12 @@ constexpr int kInlineFileMinPathScore = 45;
 // Backend retrieval block in Retrieve().
 constexpr int kBackendPriorityCap = 10;
 
+// See the Relative cutoff block at the end of Retrieve(). 30 spans one
+// full tier of the 0-100 priority scale: with a strong symbol match
+// (85) it keeps symbol and file matches and drops keyword-floor noise
+// (35), while a weak best match (45) keeps everything down to 15.
+constexpr int kRelativePriorityCutoff = 30;
+
 // A definition body longer than this is cut here, before ContextSelector
 // ever sees it: a 400-line class is not a better answer than its first
 // 120 lines plus a marker, and the head/tail cut ContextCompressor would
@@ -939,6 +945,40 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 add_item(std::move(item));
             }
         }
+    }
+
+    // Relative cutoff: how much weaker than the best match an item may be
+    // and still be worth sending.
+    //
+    // The response budget is an absolute cap, so a retrieval that already
+    // knows the answer fills the rest of it with whatever ranked next --
+    // and the caller pays for that filler on every later turn. Measured
+    // across all 15 bench tasks (2026-09-23), the core side cost roughly
+    // the same (30-50k tokens) whether the question was easy or hard,
+    // while the grep-and-read baseline it is compared against cost 26k on
+    // an easy one and 64k on a hard one. That is the whole gap: on a task
+    // with an obvious answer, a full budget of context is waste.
+    //
+    // Only the fallback tier is cut. Keyword retrieval exists for "text
+    // the symbol and file names missed" (see its own block above), and
+    // Backend items are intent-independent bulk -- when symbol/file
+    // matching did NOT miss, both are filler. Symbol, File and
+    // Dependency items are never dropped here: they are the answer and
+    // its map. A phrase hit, which KeywordPriority deliberately lets
+    // reach 60, survives this cut for the same reason it was promoted --
+    // it is precise evidence, not fallback breadth.
+    if (!items.empty()) {
+        const auto best = std::max_element(items.begin(), items.end(),
+                                            [](const ContextItem& a, const ContextItem& b) {
+                                                return a.priority < b.priority;
+                                            })
+                              ->priority;
+        const int floor = best - kRelativePriorityCutoff;
+        items.erase(std::remove_if(items.begin(), items.end(),
+                                    [floor](const ContextItem& item) {
+                                        return item.source == ContextSourceKind::Custom && item.priority < floor;
+                                    }),
+                     items.end());
     }
 
     return items;
