@@ -1,0 +1,296 @@
+{
+  "ranAt": "2026-09-23T05:41:18.283Z",
+  "model": "default",
+  "complete": true,
+  "results": [
+    {
+      "id": "plugin-loading",
+      "intent": "how plugin DLLs are loaded and their manifests registered",
+      "naive": {
+        "contextTokens": 62816,
+        "outputTokens": 1540,
+        "costUsd": 0.14828000000000002,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "f2baeea2-f8a3-44f7-81fe-b1f9de02fea9",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 62816,
+            "outputTokens": 1540,
+            "costUsd": 0.14828000000000002
+          }
+        },
+        "finalContextTokens": 18148,
+        "baseContextTokens": 6522,
+        "toolCalls": 6,
+        "runs": [
+          62816,
+          59797,
+          64339
+        ]
+      },
+      "core": {
+        "contextTokens": 45286,
+        "outputTokens": 1005,
+        "costUsd": 0.042650400000000005,
+        "subagentsSpawned": 0,
+        "numTurns": 4,
+        "sessionId": "9da29412-bc50-4cd6-9180-7331d16cc840",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 45286,
+            "outputTokens": 1005,
+            "costUsd": 0.042650400000000005
+          }
+        },
+        "finalContextTokens": 14216,
+        "baseContextTokens": 5373,
+        "toolCalls": 3,
+        "runs": [
+          45558,
+          45274,
+          45286
+        ]
+      },
+      "reductionPct": 27.906902699949054,
+      "finalReductionPct": 21.66629931672912,
+      "explorationReductionPct": 23.937725787029073
+    },
+    {
+      "id": "file-watcher-invalidation",
+      "intent": "how file changes invalidate indexes and caches",
+      "naive": {
+        "contextTokens": 52015,
+        "outputTokens": 1461,
+        "costUsd": 0.1423794,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "7552c61c-2fa7-4d11-9380-cc6dffb803db",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 52015,
+            "outputTokens": 1461,
+            "costUsd": 0.1423794
+          }
+        },
+        "finalContextTokens": 17872,
+        "baseContextTokens": 6543,
+        "toolCalls": 5,
+        "runs": [
+          52015,
+          50250,
+          67375
+        ]
+      },
+      "core": {
+        "contextTokens": 45509,
+        "outputTokens": 1302,
+        "costUsd": 0.1272746,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "4bd872eb-b7fb-4b28-8791-6a1071746046",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 45509,
+            "outputTokens": 1302,
+            "costUsd": 0.1272746
+          }
+        },
+        "finalContextTokens": 15361,
+        "baseContextTokens": 5394,
+        "toolCalls": 5,
+        "runs": [
+          45509,
+          45339,
+          70916
+        ]
+      },
+      "reductionPct": 12.50793040469096,
+      "finalReductionPct": 14.049910474485227,
+      "explorationReductionPct": 12.022243799099652
+    },
+    {
+      "id": "security-sandbox",
+      "intent": "how the context firewall restricts access to files",
+      "naive": {
+        "contextTokens": 45797,
+        "outputTokens": 1547,
+        "costUsd": 0.132318,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "d43ac49b-da62-44d4-a487-3bc523934795",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 45797,
+            "outputTokens": 1547,
+            "costUsd": 0.132318
+          }
+        },
+        "finalContextTokens": 16521,
+        "baseContextTokens": 6541,
+        "toolCalls": 6,
+        "runs": [
+          45797,
+          66717,
+          44193
+        ]
+      },
+      "core": {
+        "contextTokens": 66683,
+        "outputTokens": 1511,
+        "costUsd": 0.10974640000000001,
+        "subagentsSpawned": 0,
+        "numTurns": 8,
+        "sessionId": "2cf5e78f-ed17-49dd-bdb2-2b37e5478602",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 66683,
+            "outputTokens": 1511,
+            "costUsd": 0.10974640000000001
+          }
+        },
+        "finalContextTokens": 19193,
+        "baseContextTokens": 5392,
+        "toolCalls": 7,
+        "runs": [
+          49040,
+          66683,
+          69515
+        ]
+      },
+      "reductionPct": -45.6056073541935,
+      "finalReductionPct": -16.173355123781864,
+      "explorationReductionPct": -38.28657314629258
+    },
+    {
+      "id": "ast-index-extraction",
+      "intent": "how the AST index is built and structural outlines extracted",
+      "naive": {
+        "contextTokens": 52488,
+        "outputTokens": 1424,
+        "costUsd": 0.1225536,
+        "subagentsSpawned": 0,
+        "numTurns": 8,
+        "sessionId": "a79672ed-c7d4-4494-9c08-190771eb8c02",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 52488,
+            "outputTokens": 1424,
+            "costUsd": 0.1225536
+          }
+        },
+        "finalContextTokens": 15412,
+        "baseContextTokens": 6545,
+        "toolCalls": 7,
+        "runs": [
+          52488,
+          55251,
+          37524
+        ]
+      },
+      "core": {
+        "contextTokens": 45933,
+        "outputTokens": 943,
+        "costUsd": 0.12065520000000002,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "42757d16-b516-433f-99ea-18e5c8c9fc76",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 45933,
+            "outputTokens": 943,
+            "costUsd": 0.12065520000000002
+          }
+        },
+        "finalContextTokens": 15422,
+        "baseContextTokens": 5396,
+        "toolCalls": 5,
+        "runs": [
+          45933,
+          61958,
+          44559
+        ]
+      },
+      "reductionPct": 12.488568815729305,
+      "finalReductionPct": -0.06488450558006509,
+      "explorationReductionPct": -13.07093718281267
+    },
+    {
+      "id": "context-cache-invalidation",
+      "intent": "how the context cache memoizes and invalidates retrieval results",
+      "naive": {
+        "contextTokens": 43521,
+        "outputTokens": 1450,
+        "costUsd": 0.0990426,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "3d2d17b5-ea8b-470d-aabd-94844000a27a",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 43521,
+            "outputTokens": 1450,
+            "costUsd": 0.0990426
+          }
+        },
+        "finalContextTokens": 14408,
+        "baseContextTokens": 6548,
+        "toolCalls": 6,
+        "runs": [
+          58081,
+          42842,
+          43521
+        ]
+      },
+      "core": {
+        "contextTokens": 63178,
+        "outputTokens": 1413,
+        "costUsd": 0.10922259999999999,
+        "subagentsSpawned": 0,
+        "numTurns": 8,
+        "sessionId": "b3da41cd-e0ec-4fef-aed0-962c7f084583",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 63178,
+            "outputTokens": 1413,
+            "costUsd": 0.10922259999999999
+          }
+        },
+        "finalContextTokens": 17378,
+        "baseContextTokens": 5399,
+        "toolCalls": 7,
+        "runs": [
+          57355,
+          63178,
+          64179
+        ]
+      },
+      "reductionPct": -45.16670113278647,
+      "finalReductionPct": -20.613548028872852,
+      "explorationReductionPct": -52.404580152671755
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": -7.573781313322127,
+      "median": 12.488568815729305,
+      "min": -45.6056073541935,
+      "max": 27.906902699949054,
+      "n": 5
+    },
+    "final": {
+      "avg": -0.22711557340408745,
+      "median": -0.06488450558006509,
+      "min": -20.613548028872852,
+      "max": 21.66629931672912,
+      "n": 5
+    },
+    "exploration": {
+      "avg": -13.560424179129654,
+      "median": -13.07093718281267,
+      "min": -52.404580152671755,
+      "max": 23.937725787029073,
+      "n": 5
+    },
+    "totalCostUsd": 1.1541228000000001
+  }
+}
