@@ -245,6 +245,12 @@ constexpr int kMaxClassBodyLines = 40;
 // symbol matches that answer the intent directly.
 constexpr std::uint64_t kInlineFileMaxBytes = 6144;
 
+// A symbol match in a file this small brings the whole file with it --
+// see the Symbol retrieval block in Retrieve(). 6 KB is an ordinary
+// implementation file; the point is that its OTHER functions are what
+// the caller would otherwise spend a turn fetching.
+constexpr std::uint64_t kWholeFileForSymbolBytes = 6144;
+
 // ...and only when the match was on the file's NAME (FilePathScore 45 =
 // filename substring, 60 = exact) rather than on an enclosing directory
 // (25). See the File retrieval block in Retrieve().
@@ -721,19 +727,53 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 truncation->symbol = true;
             }
         }
+        // A match in a small file brings the WHOLE file instead of just
+        // its own declaration. The function that answers the question is
+        // often a sibling of the one whose name matched: "how does the
+        // context cache memoize" matches Invalidate and InvalidateAll
+        // (two lines each) while the memoizing happens in GetOrRetrieve,
+        // whose name contains no word from the intent. Measured
+        // 2026-09-23, all three tasks still losing spent their follow-up
+        // calls fetching the matched symbol's own file for exactly that
+        // reason -- and those files were 2-5 KB, less than the round trip
+        // cost. The file supersedes the symbol item rather than joining
+        // it, since it already contains that declaration.
+        const auto whole_file_for = [&](const std::string& file_path) -> const FileMetadata* {
+            if (snapshot == nullptr) {
+                return nullptr;
+            }
+            const auto it = metadata_by_path.find(file_path);
+            return it != metadata_by_path.end() && it->second->size <= kWholeFileForSymbolBytes ? it->second
+                                                                                                 : nullptr;
+        };
+
         for (const auto& [priority, match] : merged) {
             if (!passes_firewall(match.symbol.file_path)) {
                 continue;
             }
+            const bool first_from_file = matched_files.insert(match.symbol.file_path).second;
+            if (first_from_file) {
+                dependency_order.push_back(match.symbol.file_path);
+            }
+
+            if (const auto* metadata = whole_file_for(match.symbol.file_path)) {
+                if (!first_from_file) {
+                    continue; // the file is already in the response
+                }
+                if (auto content = FileContent(match.symbol.file_path, snapshot->contents, metadata_by_path)) {
+                    covered.push_back({match.symbol.file_path, 1, std::numeric_limits<int>::max()});
+                    add_item(MakeFileContextItem(*metadata, *std::move(content),
+                                                  bias.Apply(priority, match.symbol.file_path)));
+                    continue;
+                }
+            }
+
             auto item = MakeSymbolContextItem(match.symbol, bias.Apply(priority, match.symbol.file_path));
             if (snapshot != nullptr &&
                 AttachDefinitionBody(item, match.symbol, snapshot->contents, metadata_by_path)) {
                 covered.push_back({match.symbol.file_path, match.symbol.line, match.symbol.end_line});
             }
             add_item(std::move(item));
-            if (matched_files.insert(match.symbol.file_path).second) {
-                dependency_order.push_back(match.symbol.file_path);
-            }
         }
     }
 

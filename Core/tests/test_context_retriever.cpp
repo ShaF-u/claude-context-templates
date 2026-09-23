@@ -177,7 +177,17 @@ AISTUDIO_TEST(ContextRetriever_Retrieve_FallsBackToKeywordMatch) {
     AISTUDIO_EXPECT(HasSource(items, ContextSourceKind::Custom));
 }
 
-AISTUDIO_TEST(ContextRetriever_Retrieve_SuppressesCoarseHitsForFileAlreadyMatchedBySymbol) {
+// A symbol match in a SMALL file now brings that file's whole content
+// instead of the declaration alone, and the file item supersedes the
+// symbol item rather than joining it (see the Symbol retrieval block in
+// Retrieve()). This test previously asserted the opposite -- that the
+// symbol item is the precise signal and a file item for the same file is
+// noise -- which was a design assumption measurement overturned on
+// 2026-09-23: the caller spent a follow-up call fetching that very file,
+// because the function answering the question was a sibling of the one
+// whose name matched. Keyword hits for the file are still suppressed,
+// which is the part of the original rule that held up.
+AISTUDIO_TEST(ContextRetriever_Retrieve_SmallMatchedFile_ComesWholeInsteadOfCoarseDuplicates) {
     TempProject project;
     project.WriteFile("Attack.hpp", "// attack helper\nclass Attack {\n};\n");
 
@@ -190,8 +200,11 @@ AISTUDIO_TEST(ContextRetriever_Retrieve_SuppressesCoarseHitsForFileAlreadyMatche
     const ContextRetriever retriever(options);
 
     const auto items = retriever.Retrieve("attack");
-    AISTUDIO_EXPECT(HasSource(items, ContextSourceKind::Symbol));
-    AISTUDIO_EXPECT(!HasId(items, "Attack.hpp"));
+    const auto file_item = std::find_if(items.begin(), items.end(),
+                                         [](const ContextItem& item) { return item.id == "Attack.hpp"; });
+    AISTUDIO_EXPECT(file_item != items.end());
+    AISTUDIO_EXPECT(file_item->content.find("class Attack") != std::string::npos);
+    AISTUDIO_EXPECT(!HasSource(items, ContextSourceKind::Symbol)); // superseded, not duplicated
     AISTUDIO_EXPECT(!HasSource(items, ContextSourceKind::Custom));
 }
 
