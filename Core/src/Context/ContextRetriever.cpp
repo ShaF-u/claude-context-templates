@@ -269,19 +269,6 @@ constexpr int kBackendPriorityCap = 10;
 // (35), while a weak best match (45) keeps everything down to 15.
 constexpr int kRelativePriorityCutoff = 30;
 
-// Below this, nothing matched the intent convincingly and the response
-// is guesswork. Guesswork must be CHEAP, not thorough: the caller
-// carries every token of it through every later turn, and it is going
-// to search on its own anyway. Measured 2026-09-23, the three tasks the
-// grep-and-read baseline beat were exactly the three where no match was
-// strong, and their responses were the largest of the suite (20k
-// characters, five thousand tokens, re-sent across eight turns). In
-// that state the response keeps its ranked list -- names, paths and
-// line numbers, which is the map worth having -- but stops paying to
-// inline file bodies and trims the keyword tier.
-constexpr int kConfidentPriority = 70;
-constexpr std::size_t kLowConfidenceKeywordItems = 3;
-
 // How many below-cutoff keyword hits may survive because they point at
 // a file the response does not otherwise contain -- see the Relative
 // cutoff block at the end of Retrieve().
@@ -754,14 +741,6 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         }
     }
 
-    // Whether anything matched the intent convincingly -- see
-    // kConfidentPriority. Read before File and Keyword retrieval add
-    // their own, weaker items, so it reflects the strongest real answer
-    // found: a symbol named by the intent.
-    const bool confident =
-        std::any_of(items.begin(), items.end(),
-                     [](const ContextItem& item) { return item.priority >= kConfidentPriority; });
-
     if (snapshot != nullptr) {
         // File retrieval: path/filename substring match, skipping files
         // a symbol match already covers more precisely. Each token is
@@ -815,7 +794,7 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
             // answer (measured 2026-09-22).
             int inlined_files = 0;
             for (const auto& entry : scored) {
-                const bool worth_inlining = confident && inlined_files < kMaxInlinedFiles &&
+                const bool worth_inlining = inlined_files < kMaxInlinedFiles &&
                                             entry.path_score >= kInlineFileMinPathScore &&
                                             entry.metadata->size <= kInlineFileMaxBytes &&
                                             !LooksLikeTestFile(entry.metadata->path);
@@ -889,16 +868,8 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
             std::stable_sort(merged.begin(), merged.end(), [&](const KeywordHit& a, const KeywordHit& b) {
                 return hit_priority(a) > hit_priority(b);
             });
-            // With no confident match (see kConfidentPriority) these
-            // windows are guesses, and the caller pays for every one of
-            // them on every later turn. Keep the few strongest as a
-            // starting point for its own search rather than a wall of
-            // maybes.
-            const auto keyword_limit =
-                confident ? options_.max_keyword_matches
-                          : std::min(options_.max_keyword_matches, kLowConfidenceKeywordItems);
-            if (merged.size() > keyword_limit) {
-                merged.resize(keyword_limit);
+            if (merged.size() > options_.max_keyword_matches) {
+                merged.resize(options_.max_keyword_matches);
                 if (truncation != nullptr) {
                     truncation->keyword = true;
                 }
