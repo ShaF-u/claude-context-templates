@@ -3,6 +3,7 @@
 #include "Core/Backend/BackendFactoryRegistry.hpp"
 #include "Core/Context/FileContextSource.hpp"
 #include "Core/Event/EventBus.hpp"
+#include "Core/Database/StringList.hpp"
 #include "Core/Project/FileScanner.hpp"
 #include "Core/Util/TextRange.hpp"
 #include "Core/Util/Utf8.hpp"
@@ -94,6 +95,7 @@ Result<void> FileProviderBackend::Stop() {
 
 Result<void> FileProviderBackend::Configure(const Config& config) {
     root_ = config.GetOr("backend.core.file_provider.root", config.GetOr("project.root", "."));
+    extra_ignore_patterns_ = SplitStringList(config.GetOr("scan.extra_ignore_patterns", ""));
     if (const auto max_results_str = config.Get("backend.core.file_provider.max_results")) {
         if (const auto parsed = ParseSizeT(*max_results_str)) {
             max_results_ = *parsed;
@@ -129,7 +131,7 @@ std::vector<ContextItem> FileProviderBackend::ProvideContext(const std::string& 
     if (auto cached_scan = scan_cache_.Get("scan")) {
         scanned_files = std::move(*cached_scan);
     } else {
-        const FileScanner scanner;
+        const FileScanner scanner(FileScanner::MakeOptions(extra_ignore_patterns_));
         const auto scan_result = scanner.Scan(root_);
         if (!scan_result) {
             return items;

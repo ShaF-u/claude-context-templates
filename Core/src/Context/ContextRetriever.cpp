@@ -250,6 +250,15 @@ constexpr std::uint64_t kInlineFileMaxBytes = 6144;
 // (25). See the File retrieval block in Retrieve().
 constexpr int kInlineFileMinPathScore = 45;
 
+// ...and only for the first few. When several files match the intent's
+// words equally well, none of them is "the" file, and sending all of
+// them whole is speculation the caller pays for on every later turn:
+// measured 2026-09-23, four inlined files were 49% of a response for a
+// task the grep-and-read baseline answered more cheaply. The rest stay
+// as stubs, which name the file and its size so the caller can fetch
+// the one it decides it wants.
+constexpr int kMaxInlinedFiles = 2;
+
 // Backend Context Provider items are capped at this priority — see the
 // Backend retrieval block in Retrieve().
 constexpr int kBackendPriorityCap = 10;
@@ -778,14 +787,17 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
             // Core/Context/ for the word "context"). Inlining those too
             // spent 72% of one response on six files where two were the
             // answer (measured 2026-09-22).
+            int inlined_files = 0;
             for (const auto& entry : scored) {
-                const bool worth_inlining = entry.path_score >= kInlineFileMinPathScore &&
+                const bool worth_inlining = inlined_files < kMaxInlinedFiles &&
+                                            entry.path_score >= kInlineFileMinPathScore &&
                                             entry.metadata->size <= kInlineFileMaxBytes &&
                                             !LooksLikeTestFile(entry.metadata->path);
                 auto content = worth_inlining
                                    ? FileContent(entry.metadata->path, snapshot->contents, metadata_by_path)
                                    : std::nullopt;
                 if (content.has_value()) {
+                    ++inlined_files;
                     // The whole file is in the response, so Keyword
                     // retrieval below must not bill a window of it again
                     // as a separate item -- unlike a symbol body, which
@@ -976,7 +988,9 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         const int floor = best - kRelativePriorityCutoff;
         items.erase(std::remove_if(items.begin(), items.end(),
                                     [floor](const ContextItem& item) {
-                                        return item.source == ContextSourceKind::Custom && item.priority < floor;
+                                        const bool is_fallback = item.source == ContextSourceKind::Custom ||
+                                                                  item.source == ContextSourceKind::GitDiff;
+                                        return is_fallback && item.priority < floor;
                                     }),
                      items.end());
     }

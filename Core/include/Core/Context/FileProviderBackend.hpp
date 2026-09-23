@@ -57,6 +57,12 @@ public:
 
 private:
     std::string root_;
+    // From `scan.extra_ignore_patterns`, the same key the indexes and
+    // ContextRetriever read. This Backend scans the project itself, so
+    // without its own copy an excluded path still reached retrieval
+    // through here (found 2026-09-23: an ignored directory's files kept
+    // coming back from context_retrieve as Backend-provided items).
+    std::vector<std::string> extra_ignore_patterns_;
     std::size_t max_results_ = 3;
     // Lines kept on each side of a matching line; windows are merged, and
     // a file whose windows cover it comes back whole. Results used to
