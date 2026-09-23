@@ -269,6 +269,10 @@ constexpr int kBackendPriorityCap = 10;
 // (35), while a weak best match (45) keeps everything down to 15.
 constexpr int kRelativePriorityCutoff = 30;
 
+// At most this many include edges per response -- see Dependency
+// retrieval in Retrieve().
+constexpr std::size_t kMaxDependencyEdges = 8;
+
 // How many below-cutoff keyword hits may survive because they point at
 // a file the response does not otherwise contain -- see the Relative
 // cutoff block at the end of Retrieve().
@@ -577,6 +581,9 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
     std::unordered_set<std::string> seen_ids;
     std::unordered_set<std::string> matched_files;
     std::vector<CoveredRange> covered;
+    // Matched files in match order -- matched_files is unordered, and
+    // Dependency retrieval below needs the best match first.
+    std::vector<std::string> dependency_order;
     const auto add_item = [&](ContextItem item) {
         if (seen_ids.insert(item.id).second) {
             items.push_back(std::move(item));
@@ -724,19 +731,36 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 covered.push_back({match.symbol.file_path, match.symbol.line, match.symbol.end_line});
             }
             add_item(std::move(item));
-            matched_files.insert(match.symbol.file_path);
+            if (matched_files.insert(match.symbol.file_path).second) {
+                dependency_order.push_back(match.symbol.file_path);
+            }
         }
     }
 
     // Dependency retrieval: what each matched symbol's own file
     // includes — relevant context for editing that symbol, same
     // rationale DependencyContextSource itself documents.
+    //
+    // Capped, and taken in match order rather than from the unordered
+    // set of matched files: every include of every matched file is a
+    // dump, not a map. Measured 2026-09-23, it reached 15% of one
+    // response (roughly thirty "a.cpp includes b.hpp" lines) for a
+    // question about runtime behaviour, where the includes of the
+    // best-matching file or two are the part that says anything.
     if (options_.include_graph != nullptr) {
-        for (const auto& file_path : matched_files) {
+        std::size_t edges = 0;
+        for (const auto& file_path : dependency_order) {
+            if (edges >= kMaxDependencyEdges) {
+                break;
+            }
             for (auto& item : MakeDependencyContextItems(*options_.include_graph, file_path,
                                                            DependencyDirection::Includes, 35, passes_firewall)) {
+                if (edges >= kMaxDependencyEdges) {
+                    break;
+                }
                 item.priority = bias.Apply(item.priority, file_path);
                 add_item(std::move(item));
+                ++edges;
             }
         }
     }
