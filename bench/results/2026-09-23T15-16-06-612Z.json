@@ -1,0 +1,296 @@
+{
+  "ranAt": "2026-09-23T15:29:31.229Z",
+  "model": "default",
+  "complete": true,
+  "results": [
+    {
+      "id": "context-selection-budget",
+      "intent": "how context items are ranked, compressed, and fit into a token budget",
+      "naive": {
+        "contextTokens": 59276,
+        "outputTokens": 1804,
+        "costUsd": 0.1253414,
+        "subagentsSpawned": 0,
+        "numTurns": 9,
+        "sessionId": "6031834e-8afc-4922-a7fd-0cb1d821cabc",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 59276,
+            "outputTokens": 1804,
+            "costUsd": 0.1253414
+          }
+        },
+        "finalContextTokens": 16465,
+        "baseContextTokens": 6546,
+        "toolCalls": 8,
+        "runs": [
+          57959,
+          69439,
+          59276
+        ]
+      },
+      "core": {
+        "contextTokens": 25391,
+        "outputTokens": 935,
+        "costUsd": 0.035001800000000007,
+        "subagentsSpawned": 0,
+        "numTurns": 3,
+        "sessionId": "75aa753d-e443-43bd-a0c3-5c6b9a3d8a07",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 25391,
+            "outputTokens": 935,
+            "costUsd": 0.035001800000000007
+          }
+        },
+        "finalContextTokens": 10701,
+        "baseContextTokens": 5425,
+        "toolCalls": 2,
+        "runs": [
+          25538,
+          25388,
+          25391
+        ]
+      },
+      "reductionPct": 57.164788447263646,
+      "finalReductionPct": 35.007591861524446,
+      "explorationReductionPct": 46.809154148603696
+    },
+    {
+      "id": "database-migrations",
+      "intent": "how database schema migrations are applied",
+      "naive": {
+        "contextTokens": 30995,
+        "outputTokens": 1103,
+        "costUsd": 0.0919922,
+        "subagentsSpawned": 0,
+        "numTurns": 5,
+        "sessionId": "d7ef1ba4-e878-4399-871c-b959fb32f478",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 30995,
+            "outputTokens": 1103,
+            "costUsd": 0.0919922
+          }
+        },
+        "finalContextTokens": 14730,
+        "baseContextTokens": 6562,
+        "toolCalls": 4,
+        "runs": [
+          44224,
+          30606,
+          30995
+        ]
+      },
+      "core": {
+        "contextTokens": 37905,
+        "outputTokens": 995,
+        "costUsd": 0.09622939999999999,
+        "subagentsSpawned": 0,
+        "numTurns": 5,
+        "sessionId": "7676690d-1ccf-47e1-a821-d8cd5b40c916",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 37905,
+            "outputTokens": 995,
+            "costUsd": 0.09622939999999999
+          }
+        },
+        "finalContextTokens": 12391,
+        "baseContextTokens": 5441,
+        "toolCalls": 4,
+        "runs": [
+          37905,
+          37888,
+          38610
+        ]
+      },
+      "reductionPct": -22.293918373931287,
+      "finalReductionPct": 15.879158180583842,
+      "explorationReductionPct": 14.91185112634672
+    },
+    {
+      "id": "event-bus-pubsub",
+      "intent": "how the event bus publish/subscribe mechanism works",
+      "naive": {
+        "contextTokens": 37107,
+        "outputTokens": 1085,
+        "costUsd": 0.037217,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "7e2567ac-c4fc-4b36-b6bb-5d387f8e1e59",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 37107,
+            "outputTokens": 1085,
+            "costUsd": 0.037217
+          }
+        },
+        "finalContextTokens": 11709,
+        "baseContextTokens": 6569,
+        "toolCalls": 5,
+        "runs": [
+          37101,
+          37107,
+          37119
+        ]
+      },
+      "core": {
+        "contextTokens": 12350,
+        "outputTokens": 547,
+        "costUsd": 0.013425200000000002,
+        "subagentsSpawned": 0,
+        "numTurns": 2,
+        "sessionId": "1b4b8ed1-5dea-4bdf-975a-d9192561e4c3",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 12350,
+            "outputTokens": 547,
+            "costUsd": 0.013425200000000002
+          }
+        },
+        "finalContextTokens": 6902,
+        "baseContextTokens": 5448,
+        "toolCalls": 1,
+        "runs": [
+          12350,
+          12350,
+          12350
+        ]
+      },
+      "reductionPct": 66.71786994367639,
+      "finalReductionPct": 41.053890169954734,
+      "explorationReductionPct": 71.71206225680933
+    },
+    {
+      "id": "ast-index-extraction",
+      "intent": "how the AST index is built and structural outlines extracted",
+      "naive": {
+        "contextTokens": 71546,
+        "outputTokens": 1581,
+        "costUsd": 0.141205,
+        "subagentsSpawned": 0,
+        "numTurns": 9,
+        "sessionId": "5560be56-1422-4daa-9d7e-de1fb0bbf8fb",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 71546,
+            "outputTokens": 1581,
+            "costUsd": 0.141205
+          }
+        },
+        "finalContextTokens": 16911,
+        "baseContextTokens": 6568,
+        "toolCalls": 8,
+        "runs": [
+          71546,
+          89885,
+          49463
+        ]
+      },
+      "core": {
+        "contextTokens": 49488,
+        "outputTokens": 1072,
+        "costUsd": 0.13724519999999998,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "1e437cf6-a6d8-4f4f-9cf1-6d82754f8597",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 49488,
+            "outputTokens": 1072,
+            "costUsd": 0.13724519999999998
+          }
+        },
+        "finalContextTokens": 17155,
+        "baseContextTokens": 5447,
+        "toolCalls": 5,
+        "runs": [
+          49488,
+          49498,
+          49474
+        ]
+      },
+      "reductionPct": 30.830514633941796,
+      "finalReductionPct": -1.4428478505114972,
+      "explorationReductionPct": -13.197331528570055
+    },
+    {
+      "id": "context-cache-invalidation",
+      "intent": "how the context cache memoizes and invalidates retrieval results",
+      "naive": {
+        "contextTokens": 45002,
+        "outputTokens": 1495,
+        "costUsd": 0.1246762,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "730ba563-dcd6-49f1-b7c5-e42185f9b027",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 45002,
+            "outputTokens": 1495,
+            "costUsd": 0.1246762
+          }
+        },
+        "finalContextTokens": 15695,
+        "baseContextTokens": 6571,
+        "toolCalls": 6,
+        "runs": [
+          45002,
+          44523,
+          45120
+        ]
+      },
+      "core": {
+        "contextTokens": 56411,
+        "outputTokens": 1236,
+        "costUsd": 0.0805002,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "6045aef8-72c4-4448-b7b0-6c5f24758ef3",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 56411,
+            "outputTokens": 1236,
+            "costUsd": 0.0805002
+          }
+        },
+        "finalContextTokens": 14833,
+        "baseContextTokens": 5450,
+        "toolCalls": 6,
+        "runs": [
+          56424,
+          56411,
+          48077
+        ]
+      },
+      "reductionPct": -25.35220656859696,
+      "finalReductionPct": 5.492194966549857,
+      "explorationReductionPct": -2.8386672512056066
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": 21.413409616470716,
+      "median": 30.830514633941796,
+      "min": -25.35220656859696,
+      "max": 66.71786994367639,
+      "n": 5
+    },
+    "final": {
+      "avg": 19.19799746562028,
+      "median": 15.879158180583842,
+      "min": -1.4428478505114972,
+      "max": 41.053890169954734,
+      "n": 5
+    },
+    "exploration": {
+      "avg": 23.479413750396816,
+      "median": 14.91185112634672,
+      "min": -13.197331528570055,
+      "max": 71.71206225680933,
+      "n": 5
+    },
+    "totalCostUsd": 0.8828336
+  }
+}
