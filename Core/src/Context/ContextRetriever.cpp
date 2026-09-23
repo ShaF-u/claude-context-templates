@@ -979,7 +979,21 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
     // its map. A phrase hit, which KeywordPriority deliberately lets
     // reach 60, survives this cut for the same reason it was promoted --
     // it is precise evidence, not fallback breadth.
+    //
+    // A keyword hit in a file the response does NOT otherwise contain is
+    // exempt: that is where the matched code is USED, and it is the
+    // answer to half the questions asked here ("...and who calls it?").
+    // Cutting those cost three extra turns on one task (measured
+    // 2026-09-23: the model went looking for the call site itself, in
+    // main.cpp, which one surviving keyword hit would have handed it).
+    // A hit in a file already included is genuinely redundant.
     if (!items.empty()) {
+        std::unordered_set<std::string> represented = matched_files;
+        for (const auto& item : items) {
+            if (item.source == ContextSourceKind::File) {
+                represented.insert(item.id);
+            }
+        }
         const auto best = std::max_element(items.begin(), items.end(),
                                             [](const ContextItem& a, const ContextItem& b) {
                                                 return a.priority < b.priority;
@@ -987,10 +1001,19 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                               ->priority;
         const int floor = best - kRelativePriorityCutoff;
         items.erase(std::remove_if(items.begin(), items.end(),
-                                    [floor](const ContextItem& item) {
-                                        const bool is_fallback = item.source == ContextSourceKind::Custom ||
-                                                                  item.source == ContextSourceKind::GitDiff;
-                                        return is_fallback && item.priority < floor;
+                                    [&](const ContextItem& item) {
+                                        if (item.priority >= floor) {
+                                            return false;
+                                        }
+                                        if (item.source == ContextSourceKind::GitDiff) {
+                                            return true;
+                                        }
+                                        if (item.source != ContextSourceKind::Custom) {
+                                            return false;
+                                        }
+                                        const bool elsewhere =
+                                            !item.depends_on.empty() && represented.count(item.depends_on.front()) == 0;
+                                        return !elsewhere;
                                     }),
                      items.end());
     }
