@@ -1,0 +1,137 @@
+{
+  "ranAt": "2026-09-23T06:10:18.818Z",
+  "model": "default",
+  "complete": false,
+  "results": [
+    {
+      "id": "impact-analysis",
+      "intent": "how changing a file's impact on other files is analyzed",
+      "naive": {
+        "contextTokens": 26141,
+        "outputTokens": 995,
+        "costUsd": 0.08657599999999999,
+        "subagentsSpawned": 0,
+        "numTurns": 4,
+        "sessionId": "8c89bdf2-3ce7-4875-8bf7-f7fd26e068eb",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 26141,
+            "outputTokens": 995,
+            "costUsd": 0.08657599999999999
+          }
+        },
+        "finalContextTokens": 12577,
+        "baseContextTokens": 6534,
+        "toolCalls": 3,
+        "runs": [
+          26141,
+          26107,
+          26143
+        ]
+      },
+      "core": {
+        "contextTokens": 36736,
+        "outputTokens": 1206,
+        "costUsd": 0.094662,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "4788d83e-ad46-4bdf-baf1-3d488558a4c3",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 36736,
+            "outputTokens": 1206,
+            "costUsd": 0.094662
+          }
+        },
+        "finalContextTokens": 11651,
+        "baseContextTokens": 5385,
+        "toolCalls": 5,
+        "runs": [
+          36736,
+          36738,
+          24517
+        ]
+      },
+      "reductionPct": -40.5302015990207,
+      "finalReductionPct": 7.36264610002385,
+      "explorationReductionPct": -3.690220089359597
+    },
+    {
+      "id": "event-bus-pubsub",
+      "intent": "how the event bus publish/subscribe mechanism works",
+      "naive": {
+        "contextTokens": 35689,
+        "outputTokens": 1258,
+        "costUsd": 0.0689102,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "eeb3584c-ded9-4d4c-b423-f1e911499b46",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 35689,
+            "outputTokens": 1258,
+            "costUsd": 0.0689102
+          }
+        },
+        "finalContextTokens": 11251,
+        "baseContextTokens": 6561,
+        "toolCalls": 5,
+        "runs": [
+          36521,
+          35383,
+          35689
+        ]
+      },
+      "core": {
+        "contextTokens": 12278,
+        "outputTokens": 677,
+        "costUsd": 0.0160108,
+        "subagentsSpawned": 0,
+        "numTurns": 2,
+        "sessionId": "2c24cf31-e07b-424b-ace7-95ebbe95dcac",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 12278,
+            "outputTokens": 677,
+            "costUsd": 0.0160108
+          }
+        },
+        "finalContextTokens": 6866,
+        "baseContextTokens": 5412,
+        "toolCalls": 1,
+        "runs": [
+          12278,
+          12278,
+          12278
+        ]
+      },
+      "reductionPct": 65.59724284793633,
+      "finalReductionPct": 38.97431339436495,
+      "explorationReductionPct": 68.99786780383795
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": 12.533520624457815,
+      "median": 12.533520624457815,
+      "min": -40.5302015990207,
+      "max": 65.59724284793633,
+      "n": 2
+    },
+    "final": {
+      "avg": 23.1684797471944,
+      "median": 23.1684797471944,
+      "min": 7.36264610002385,
+      "max": 38.97431339436495,
+      "n": 2
+    },
+    "exploration": {
+      "avg": 32.653823857239175,
+      "median": 32.653823857239175,
+      "min": -3.690220089359597,
+      "max": 68.99786780383795,
+      "n": 2
+    },
+    "totalCostUsd": 0.266159
+  }
+}

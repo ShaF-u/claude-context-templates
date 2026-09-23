@@ -1,0 +1,137 @@
+{
+  "ranAt": "2026-09-23T10:08:27.563Z",
+  "model": "default",
+  "complete": true,
+  "results": [
+    {
+      "id": "security-sandbox",
+      "intent": "how the context firewall restricts access to files",
+      "naive": {
+        "contextTokens": 43233,
+        "outputTokens": 1692,
+        "costUsd": 0.1117264,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "ceeca89c-a86a-44b6-9d3c-2151476eae0d",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 43233,
+            "outputTokens": 1692,
+            "costUsd": 0.1117264
+          }
+        },
+        "finalContextTokens": 15429,
+        "baseContextTokens": 6556,
+        "toolCalls": 6,
+        "runs": [
+          42252,
+          55041,
+          43233
+        ]
+      },
+      "core": {
+        "contextTokens": 66685,
+        "outputTokens": 1479,
+        "costUsd": 0.19139680000000003,
+        "subagentsSpawned": 0,
+        "numTurns": 8,
+        "sessionId": "393a8ef4-ee80-4bef-99af-710ef44aba03",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 66685,
+            "outputTokens": 1479,
+            "costUsd": 0.19139680000000003
+          }
+        },
+        "finalContextTokens": 19033,
+        "baseContextTokens": 5407,
+        "toolCalls": 7,
+        "runs": [
+          66685,
+          51064,
+          66726
+        ]
+      },
+      "reductionPct": -54.24559942636411,
+      "finalReductionPct": -23.358610408970115,
+      "explorationReductionPct": -53.567001014313085
+    },
+    {
+      "id": "context-cache-invalidation",
+      "intent": "how the context cache memoizes and invalidates retrieval results",
+      "naive": {
+        "contextTokens": 58173,
+        "outputTokens": 1305,
+        "costUsd": 0.1096574,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "ac221e2c-7ebc-4323-8d64-7334704851f5",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 58173,
+            "outputTokens": 1305,
+            "costUsd": 0.1096574
+          }
+        },
+        "finalContextTokens": 15805,
+        "baseContextTokens": 6589,
+        "toolCalls": 5,
+        "runs": [
+          43351,
+          63223,
+          58173
+        ]
+      },
+      "core": {
+        "contextTokens": 58435,
+        "outputTokens": 1163,
+        "costUsd": 0.1288424,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "2c9d3566-c6e7-4162-8c09-aa29f9404740",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 58435,
+            "outputTokens": 1163,
+            "costUsd": 0.1288424
+          }
+        },
+        "finalContextTokens": 15586,
+        "baseContextTokens": 5440,
+        "toolCalls": 6,
+        "runs": [
+          58435,
+          58313,
+          66039
+        ]
+      },
+      "reductionPct": -0.4503807608340571,
+      "finalReductionPct": 1.3856374565011098,
+      "explorationReductionPct": -10.091145833333325
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": -27.347990093599083,
+      "median": -27.347990093599083,
+      "min": -54.24559942636411,
+      "max": -0.4503807608340571,
+      "n": 2
+    },
+    "final": {
+      "avg": -10.986486476234504,
+      "median": -10.986486476234504,
+      "min": -23.358610408970115,
+      "max": 1.3856374565011098,
+      "n": 2
+    },
+    "exploration": {
+      "avg": -31.829073423823203,
+      "median": -31.829073423823203,
+      "min": -53.567001014313085,
+      "max": -10.091145833333325,
+      "n": 2
+    },
+    "totalCostUsd": 0.5416230000000001
+  }
+}
