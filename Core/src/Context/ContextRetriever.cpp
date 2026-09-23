@@ -269,6 +269,24 @@ constexpr int kBackendPriorityCap = 10;
 // (35), while a weak best match (45) keeps everything down to 15.
 constexpr int kRelativePriorityCutoff = 30;
 
+// Below this, nothing matched the intent convincingly and the response
+// is guesswork. Guesswork must be CHEAP, not thorough: the caller
+// carries every token of it through every later turn, and it is going
+// to search on its own anyway. Measured 2026-09-23, the three tasks the
+// grep-and-read baseline beat were exactly the three where no match was
+// strong, and their responses were the largest of the suite (20k
+// characters, five thousand tokens, re-sent across eight turns). In
+// that state the response keeps its ranked list -- names, paths and
+// line numbers, which is the map worth having -- but stops paying to
+// inline file bodies and trims the keyword tier.
+constexpr int kConfidentPriority = 70;
+constexpr std::size_t kLowConfidenceKeywordItems = 3;
+
+// How many below-cutoff keyword hits may survive because they point at
+// a file the response does not otherwise contain -- see the Relative
+// cutoff block at the end of Retrieve().
+constexpr std::size_t kMaxExemptedCallSites = 3;
+
 // A definition body longer than this is cut here, before ContextSelector
 // ever sees it: a 400-line class is not a better answer than its first
 // 120 lines plus a marker, and the head/tail cut ContextCompressor would
@@ -736,6 +754,14 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         }
     }
 
+    // Whether anything matched the intent convincingly -- see
+    // kConfidentPriority. Read before File and Keyword retrieval add
+    // their own, weaker items, so it reflects the strongest real answer
+    // found: a symbol named by the intent.
+    const bool confident =
+        std::any_of(items.begin(), items.end(),
+                     [](const ContextItem& item) { return item.priority >= kConfidentPriority; });
+
     if (snapshot != nullptr) {
         // File retrieval: path/filename substring match, skipping files
         // a symbol match already covers more precisely. Each token is
@@ -789,7 +815,7 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
             // answer (measured 2026-09-22).
             int inlined_files = 0;
             for (const auto& entry : scored) {
-                const bool worth_inlining = inlined_files < kMaxInlinedFiles &&
+                const bool worth_inlining = confident && inlined_files < kMaxInlinedFiles &&
                                             entry.path_score >= kInlineFileMinPathScore &&
                                             entry.metadata->size <= kInlineFileMaxBytes &&
                                             !LooksLikeTestFile(entry.metadata->path);
@@ -863,8 +889,16 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
             std::stable_sort(merged.begin(), merged.end(), [&](const KeywordHit& a, const KeywordHit& b) {
                 return hit_priority(a) > hit_priority(b);
             });
-            if (merged.size() > options_.max_keyword_matches) {
-                merged.resize(options_.max_keyword_matches);
+            // With no confident match (see kConfidentPriority) these
+            // windows are guesses, and the caller pays for every one of
+            // them on every later turn. Keep the few strongest as a
+            // starting point for its own search rather than a wall of
+            // maybes.
+            const auto keyword_limit =
+                confident ? options_.max_keyword_matches
+                          : std::min(options_.max_keyword_matches, kLowConfidenceKeywordItems);
+            if (merged.size() > keyword_limit) {
+                merged.resize(keyword_limit);
                 if (truncation != nullptr) {
                     truncation->keyword = true;
                 }
@@ -1000,22 +1034,26 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                                             })
                               ->priority;
         const int floor = best - kRelativePriorityCutoff;
-        items.erase(std::remove_if(items.begin(), items.end(),
-                                    [&](const ContextItem& item) {
-                                        if (item.priority >= floor) {
-                                            return false;
-                                        }
-                                        if (item.source == ContextSourceKind::GitDiff) {
-                                            return true;
-                                        }
-                                        if (item.source != ContextSourceKind::Custom) {
-                                            return false;
-                                        }
-                                        const bool elsewhere =
-                                            !item.depends_on.empty() && represented.count(item.depends_on.front()) == 0;
-                                        return !elsewhere;
-                                    }),
-                     items.end());
+        std::size_t call_sites_kept = 0;
+        const auto drop = [&](const ContextItem& item) {
+            if (item.priority >= floor) {
+                return false;
+            }
+            if (item.source == ContextSourceKind::GitDiff) {
+                return true;
+            }
+            if (item.source != ContextSourceKind::Custom) {
+                return false;
+            }
+            const bool elsewhere =
+                !item.depends_on.empty() && represented.count(item.depends_on.front()) == 0;
+            // Capped: a few call sites are the wiring, eight of them are
+            // a wall of maybes the caller carries for the rest of the
+            // session (measured 2026-09-23 on the suite's worst task).
+            return !elsewhere || ++call_sites_kept > kMaxExemptedCallSites;
+        };
+        items.erase(std::remove_if(items.begin(), items.end(), drop), items.end());
+
     }
 
     return items;
