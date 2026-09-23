@@ -251,6 +251,13 @@ constexpr std::uint64_t kInlineFileMaxBytes = 6144;
 // the caller would otherwise spend a turn fetching.
 constexpr std::uint64_t kWholeFileForSymbolBytes = 6144;
 
+// ...for at most this many files. Without a cap, an intent whose words
+// appear in several small files promoted all of them and filled the
+// whole response budget with files (measured 2026-09-23: 29k characters,
+// and the caller still made four more calls). Later matches fall back to
+// their own declaration, which is what they were before.
+constexpr int kMaxWholeFilesFromSymbols = 2;
+
 // ...and only when the match was on the file's NAME (FilePathScore 45 =
 // filename substring, 60 = exact) rather than on an enclosing directory
 // (25). See the File retrieval block in Retrieve().
@@ -747,6 +754,7 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                                                                                                  : nullptr;
         };
 
+        int whole_files = 0;
         for (const auto& [priority, match] : merged) {
             if (!passes_firewall(match.symbol.file_path)) {
                 continue;
@@ -756,11 +764,14 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 dependency_order.push_back(match.symbol.file_path);
             }
 
-            if (const auto* metadata = whole_file_for(match.symbol.file_path)) {
+            const FileMetadata* metadata =
+                whole_files < kMaxWholeFilesFromSymbols ? whole_file_for(match.symbol.file_path) : nullptr;
+            if (metadata != nullptr) {
                 if (!first_from_file) {
                     continue; // the file is already in the response
                 }
                 if (auto content = FileContent(match.symbol.file_path, snapshot->contents, metadata_by_path)) {
+                    ++whole_files;
                     covered.push_back({match.symbol.file_path, 1, std::numeric_limits<int>::max()});
                     add_item(MakeFileContextItem(*metadata, *std::move(content),
                                                   bias.Apply(priority, match.symbol.file_path)));
