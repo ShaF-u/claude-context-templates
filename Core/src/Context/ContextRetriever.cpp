@@ -239,31 +239,25 @@ double TokenSpecificity(std::size_t match_count) {
 constexpr int kMaxClassBodyLines = 40;
 
 // A File item at or under this size is sent whole instead of as a
-// fetch-me stub -- see the File retrieval block in Retrieve(). 12 KB
-// covers an ordinary header or implementation file (~3k tokens).
-//
-// The cap was 6 KB, which turned out to be a threshold for "the caller
-// fetches it in the next turn anyway": measured 2026-09-23, a cache
-// question stubbed two 7 KB headers and the model fetched both, paying
-// for the same bytes plus a round trip. Every attempt in this project
-// to send LESS of a real match has cost more than it saved (see the
-// same note on kMaxInlinedFiles); the cap exists now only to keep one
-// enormous file from swallowing the response.
-constexpr std::uint64_t kInlineFileMaxBytes = 12288;
+// fetch-me stub -- see the File retrieval block in Retrieve(). ~6 KB is
+// a header or a small implementation file (~1.5k tokens), an amount the
+// response budget can absorb; anything larger would crowd out the
+// symbol matches that answer the intent directly.
+constexpr std::uint64_t kInlineFileMaxBytes = 6144;
 
 // ...and only when the match was on the file's NAME (FilePathScore 45 =
 // filename substring, 60 = exact) rather than on an enclosing directory
 // (25). See the File retrieval block in Retrieve().
 constexpr int kInlineFileMinPathScore = 45;
 
-// ...and only for the first few, so a flat field of equally-weak
-// matches can't turn the response into a file dump. The rest stay as
-// stubs, which name the file and its size so the caller can fetch the
-// one it decides it wants -- but the count is deliberately generous,
-// because a stub the caller then fetches costs a whole round trip and
-// every measurement in this project has come out against withholding a
-// real match (see kInlineFileMaxBytes).
-constexpr int kMaxInlinedFiles = 3;
+// ...and only for the first few. When several files match the intent's
+// words equally well, none of them is "the" file, and sending all of
+// them whole is speculation the caller pays for on every later turn:
+// measured 2026-09-23, four inlined files were 49% of a response for a
+// task the grep-and-read baseline answered more cheaply. The rest stay
+// as stubs, which name the file and its size so the caller can fetch
+// the one it decides it wants.
+constexpr int kMaxInlinedFiles = 2;
 
 // Backend Context Provider items are capped at this priority — see the
 // Backend retrieval block in Retrieve().
