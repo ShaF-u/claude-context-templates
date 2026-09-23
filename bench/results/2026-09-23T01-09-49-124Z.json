@@ -1,0 +1,84 @@
+{
+  "ranAt": "2026-09-23T01:12:30.992Z",
+  "model": "default",
+  "complete": false,
+  "results": [
+    {
+      "id": "symbol-search",
+      "intent": "how symbol search is implemented",
+      "naive": {
+        "contextTokens": 53534,
+        "outputTokens": 1275,
+        "costUsd": 0.1063668,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "ad730d49-1945-4ae4-9e61-4c52dfc89d97",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 53534,
+            "outputTokens": 1275,
+            "costUsd": 0.1063668
+          }
+        },
+        "finalContextTokens": 13692,
+        "baseContextTokens": 6508,
+        "toolCalls": 5,
+        "runs": [
+          53534,
+          54699,
+          40206
+        ]
+      },
+      "core": {
+        "contextTokens": 36948,
+        "outputTokens": 1025,
+        "costUsd": 0.08804239999999999,
+        "subagentsSpawned": 0,
+        "numTurns": 4,
+        "sessionId": "c44ca326-a2a0-450d-9d1d-ea0340ea0de7",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 36948,
+            "outputTokens": 1025,
+            "costUsd": 0.08804239999999999
+          }
+        },
+        "finalContextTokens": 11261,
+        "baseContextTokens": 5359,
+        "toolCalls": 3,
+        "runs": [
+          36948,
+          50723,
+          36818
+        ]
+      },
+      "reductionPct": 30.98217954944521,
+      "finalReductionPct": 17.754893368390302,
+      "explorationReductionPct": 17.845211581291764
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": 30.98217954944521,
+      "median": 30.98217954944521,
+      "min": 30.98217954944521,
+      "max": 30.98217954944521,
+      "n": 1
+    },
+    "final": {
+      "avg": 17.754893368390302,
+      "median": 17.754893368390302,
+      "min": 17.754893368390302,
+      "max": 17.754893368390302,
+      "n": 1
+    },
+    "exploration": {
+      "avg": 17.845211581291764,
+      "median": 17.845211581291764,
+      "min": 17.845211581291764,
+      "max": 17.845211581291764,
+      "n": 1
+    },
+    "totalCostUsd": 0.1944092
+  }
+}
