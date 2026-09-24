@@ -1,0 +1,296 @@
+{
+  "ranAt": "2026-09-24T02:14:19.711Z",
+  "model": "default",
+  "complete": true,
+  "results": [
+    {
+      "id": "symbol-search",
+      "intent": "how symbol search is implemented",
+      "naive": {
+        "contextTokens": 41881,
+        "outputTokens": 1245,
+        "costUsd": 0.0918456,
+        "subagentsSpawned": 0,
+        "numTurns": 5,
+        "sessionId": "fe6cce89-2277-4236-8474-340eb002ef94",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 41881,
+            "outputTokens": 1245,
+            "costUsd": 0.0918456
+          }
+        },
+        "finalContextTokens": 14037,
+        "baseContextTokens": 6532,
+        "toolCalls": 4,
+        "runs": [
+          27818,
+          41881,
+          53528
+        ]
+      },
+      "core": {
+        "contextTokens": 15982,
+        "outputTokens": 703,
+        "costUsd": 0.0172716,
+        "subagentsSpawned": 0,
+        "numTurns": 2,
+        "sessionId": "917e50ba-a750-426c-a25e-bd26e6522fa9",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 15982,
+            "outputTokens": 703,
+            "costUsd": 0.0172716
+          }
+        },
+        "finalContextTokens": 10571,
+        "baseContextTokens": 5411,
+        "toolCalls": 1,
+        "runs": [
+          15982,
+          15982,
+          15982
+        ]
+      },
+      "reductionPct": 61.83949762422101,
+      "finalReductionPct": 24.691885730569208,
+      "explorationReductionPct": 31.245836109260495
+    },
+    {
+      "id": "context-selection-budget",
+      "intent": "how context items are ranked, compressed, and fit into a token budget",
+      "naive": {
+        "contextTokens": 68149,
+        "outputTokens": 1930,
+        "costUsd": 0.1388866,
+        "subagentsSpawned": 0,
+        "numTurns": 9,
+        "sessionId": "ddd09e5b-a8d8-4edf-8d61-e4e4b60b73b1",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 68149,
+            "outputTokens": 1930,
+            "costUsd": 0.1388866
+          }
+        },
+        "finalContextTokens": 15806,
+        "baseContextTokens": 6569,
+        "toolCalls": 8,
+        "runs": [
+          68149,
+          68325,
+          67835
+        ]
+      },
+      "core": {
+        "contextTokens": 28027,
+        "outputTokens": 933,
+        "costUsd": 0.0900422,
+        "subagentsSpawned": 0,
+        "numTurns": 3,
+        "sessionId": "4ce80768-37c1-4f4a-a376-bd1dee59cc78",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 28027,
+            "outputTokens": 933,
+            "costUsd": 0.0900422
+          }
+        },
+        "finalContextTokens": 12011,
+        "baseContextTokens": 5448,
+        "toolCalls": 2,
+        "runs": [
+          28027,
+          28020,
+          28096
+        ]
+      },
+      "reductionPct": 58.87393798881861,
+      "finalReductionPct": 24.009869669745665,
+      "explorationReductionPct": 28.948792898127095
+    },
+    {
+      "id": "impact-analysis",
+      "intent": "how changing a file's impact on other files is analyzed",
+      "naive": {
+        "contextTokens": 26412,
+        "outputTokens": 904,
+        "costUsd": 0.0712148,
+        "subagentsSpawned": 0,
+        "numTurns": 4,
+        "sessionId": "f9e98627-feaf-4f7b-b645-a60e55d848c4",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 26412,
+            "outputTokens": 904,
+            "costUsd": 0.0712148
+          }
+        },
+        "finalContextTokens": 12697,
+        "baseContextTokens": 6565,
+        "toolCalls": 3,
+        "runs": [
+          26345,
+          28450,
+          26412
+        ]
+      },
+      "core": {
+        "contextTokens": 18856,
+        "outputTokens": 675,
+        "costUsd": 0.0172864,
+        "subagentsSpawned": 0,
+        "numTurns": 2,
+        "sessionId": "cf0b7746-acb6-43fe-b4ad-16d985798d94",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 18856,
+            "outputTokens": 675,
+            "costUsd": 0.0172864
+          }
+        },
+        "finalContextTokens": 13412,
+        "baseContextTokens": 5444,
+        "toolCalls": 1,
+        "runs": [
+          18856,
+          18856,
+          18856
+        ]
+      },
+      "reductionPct": 28.6082083901257,
+      "finalReductionPct": -5.631251476726784,
+      "explorationReductionPct": -29.941291585127196
+    },
+    {
+      "id": "event-bus-pubsub",
+      "intent": "how the event bus publish/subscribe mechanism works",
+      "naive": {
+        "contextTokens": 37320,
+        "outputTokens": 1116,
+        "costUsd": 0.08367340000000001,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "aa3d92d0-a4f1-4179-bd5c-754ad06a2349",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 37320,
+            "outputTokens": 1116,
+            "costUsd": 0.08367340000000001
+          }
+        },
+        "finalContextTokens": 11607,
+        "baseContextTokens": 6566,
+        "toolCalls": 5,
+        "runs": [
+          37320,
+          35693,
+          37574
+        ]
+      },
+      "core": {
+        "contextTokens": 13520,
+        "outputTokens": 755,
+        "costUsd": 0.0178192,
+        "subagentsSpawned": 0,
+        "numTurns": 2,
+        "sessionId": "b4a57057-a118-43e9-aa66-0686aca5de7b",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 13520,
+            "outputTokens": 755,
+            "costUsd": 0.0178192
+          }
+        },
+        "finalContextTokens": 8075,
+        "baseContextTokens": 5445,
+        "toolCalls": 1,
+        "runs": [
+          13520,
+          13520,
+          13520
+        ]
+      },
+      "reductionPct": 63.772775991425505,
+      "finalReductionPct": 30.429912983544416,
+      "explorationReductionPct": 47.82781194207498
+    },
+    {
+      "id": "context-cache-invalidation",
+      "intent": "how the context cache memoizes and invalidates retrieval results",
+      "naive": {
+        "contextTokens": 45931,
+        "outputTokens": 1223,
+        "costUsd": 0.12348579999999999,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "83d457b6-9452-4b6d-84fe-49a5e0c1c15e",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 45931,
+            "outputTokens": 1223,
+            "costUsd": 0.12348579999999999
+          }
+        },
+        "finalContextTokens": 16216,
+        "baseContextTokens": 6568,
+        "toolCalls": 5,
+        "runs": [
+          45931,
+          46323,
+          42714
+        ]
+      },
+      "core": {
+        "contextTokens": 39118,
+        "outputTokens": 1055,
+        "costUsd": 0.0414184,
+        "subagentsSpawned": 0,
+        "numTurns": 5,
+        "sessionId": "7e836056-e13f-4c53-a178-34a5eedacfee",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 39118,
+            "outputTokens": 1055,
+            "costUsd": 0.0414184
+          }
+        },
+        "finalContextTokens": 12130,
+        "baseContextTokens": 5447,
+        "toolCalls": 4,
+        "runs": [
+          50972,
+          39118,
+          15979
+        ]
+      },
+      "reductionPct": 14.833119244083514,
+      "finalReductionPct": 25.197335964479528,
+      "explorationReductionPct": 30.731757877280263
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": 45.58550784773487,
+      "median": 58.87393798881861,
+      "min": 14.833119244083514,
+      "max": 63.772775991425505,
+      "n": 5
+    },
+    "final": {
+      "avg": 19.739550574322404,
+      "median": 24.691885730569208,
+      "min": -5.631251476726784,
+      "max": 30.429912983544416,
+      "n": 5
+    },
+    "exploration": {
+      "avg": 21.76258144832313,
+      "median": 30.731757877280263,
+      "min": -29.941291585127196,
+      "max": 47.82781194207498,
+      "n": 5
+    },
+    "totalCostUsd": 0.692944
+  }
+}

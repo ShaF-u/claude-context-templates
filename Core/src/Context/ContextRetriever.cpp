@@ -204,15 +204,33 @@ std::vector<std::string> TokenizeIntent(const std::string& intent) {
 
 // Symbol match tiers land in 35-85: SymbolMatch::score's own range is
 // 40 (substring) .. 105 (exact + case bonus) — see SymbolSearch.cpp.
+// SymbolMatch::score runs 40 (substring) .. 105 (exact + case bonus) --
+// see SymbolSearch.cpp -- and this spreads that across the 35-85 Symbol
+// tier linearly.
+//
+// It used to be score * 8 / 10 clamped to the same range, which sent
+// EVERY substring match to the floor: 40 * 0.8 = 32, clamped up to 35,
+// the same priority a barely-relevant match gets. Measured 2026-09-24,
+// that made a whole class of match unable to compete -- an intent about
+// compression ranked the member field literally named `compression`
+// (exact match, 100) far above SelectWithCompression (substring, 50),
+// which is where compression actually happens, and no amount of extra
+// slots helped because the substring match was pinned to the floor.
 int SymbolPriority(int score) {
-    return std::clamp(score * 8 / 10, 35, 85);
+    constexpr int kMinScore = 40;
+    constexpr int kMaxScore = 105;
+    constexpr int kMinPriority = 35;
+    constexpr int kMaxPriority = 85;
+    const int clamped = std::clamp(score, kMinScore, kMaxScore);
+    return kMinPriority +
+            (clamped - kMinScore) * (kMaxPriority - kMinPriority) / (kMaxScore - kMinScore);
 }
 
 // See the Symbol retrieval block in Retrieve() for what these adjust.
 // The result is still clamped to the 35-85 Symbol tier, so the Active
 // File Bias arithmetic documented in the class comment is unchanged.
 constexpr int kMultiTokenBonus = 10;
-constexpr int kVariablePenalty = 15;
+constexpr int kVariablePenalty = 30;
 
 // How much one intent token's symbol matches count, by how many symbols
 // it matched: a token that names a handful of symbols is a signal, one
@@ -661,6 +679,11 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         struct MergedMatch {
             SymbolMatch match;
             int matched_tokens = 0;
+            // Sum of TokenSpecificity over the tokens that matched, so
+            // the multi-token bonus below can tell "named after two rare
+            // words" from "named after two of this project's commonest
+            // ones".
+            double specificity_sum = 0.0;
         };
         std::unordered_map<std::string, MergedMatch> best_by_symbol;
         for (const auto& token : intent_tokens) {
@@ -680,9 +703,10 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
             const double weight = TokenSpecificity(token_best.size());
             for (auto& [key, match] : token_best) {
                 match.score = static_cast<int>(match.score * weight);
-                auto [it, inserted] = best_by_symbol.try_emplace(key, MergedMatch{match, 1});
+                auto [it, inserted] = best_by_symbol.try_emplace(key, MergedMatch{match, 1, weight});
                 if (!inserted) {
                     ++it->second.matched_tokens;
+                    it->second.specificity_sum += weight;
                     if (match.score > it->second.match.score) {
                         it->second.match = match;
                     }
@@ -707,7 +731,8 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 }
                 const std::string type_key = type_symbol.file_path + '\x1f' + type_symbol.name;
                 auto [it, inserted] = best_by_symbol.try_emplace(
-                    type_key, MergedMatch{SymbolMatch{type_symbol, entry.match.score}, entry.matched_tokens});
+                    type_key, MergedMatch{SymbolMatch{type_symbol, entry.match.score}, entry.matched_tokens,
+                                           entry.specificity_sum});
                 if (!inserted && entry.match.score > it->second.match.score) {
                     it->second.match.score = entry.match.score;
                 }
@@ -716,7 +741,18 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         std::vector<std::pair<int, SymbolMatch>> merged;
         merged.reserve(best_by_symbol.size());
         for (auto& [key, entry] : best_by_symbol) {
-            int priority = SymbolPriority(entry.match.score) + kMultiTokenBonus * (entry.matched_tokens - 1);
+            // The bonus for matching several intent words is scaled by how
+            // specific those words were. Measured 2026-09-24: an intent
+            // about ranking, compression and budgeting put ContextItem and
+            // ContextBudget on top -- each named after two of this
+            // project's commonest words ("context" plus "item"/"budget")
+            // -- while SelectWithCompression, which is where the ranking
+            // actually happens, matched only the rare word and never made
+            // the cut. Unweighted, two generic words beat one precise one.
+            const double specificity =
+                entry.matched_tokens > 0 ? entry.specificity_sum / entry.matched_tokens : 1.0;
+            int priority = SymbolPriority(entry.match.score) +
+                            static_cast<int>(kMultiTokenBonus * (entry.matched_tokens - 1) * specificity);
             if (entry.match.symbol.kind == SymbolKind::Variable) {
                 priority -= kVariablePenalty;
             }
