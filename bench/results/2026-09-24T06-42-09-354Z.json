@@ -1,0 +1,88 @@
+{
+  "ranAt": "2026-09-24T06:46:43.308Z",
+  "model": "default",
+  "complete": true,
+  "results": [
+    {
+      "id": "context-selection-budget",
+      "intent": "how context items are ranked, compressed, and fit into a token budget",
+      "naive": {
+        "contextTokens": 72208,
+        "outputTokens": 1580,
+        "costUsd": 0.1377216,
+        "subagentsSpawned": 0,
+        "numTurns": 8,
+        "sessionId": "c13527e1-8ac5-41a9-b2ec-6fb26dc99003",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 72208,
+            "outputTokens": 1580,
+            "costUsd": 0.1377216
+          }
+        },
+        "finalContextTokens": 16450,
+        "baseContextTokens": 6477,
+        "toolCalls": 7,
+        "runs": [
+          72208,
+          54100,
+          68901,
+          79238,
+          88525
+        ]
+      },
+      "core": {
+        "contextTokens": 17485,
+        "outputTokens": 785,
+        "costUsd": 0.0192122,
+        "subagentsSpawned": 0,
+        "numTurns": 2,
+        "sessionId": "54e653c5-b511-4e2d-8779-18065425df5b",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 17485,
+            "outputTokens": 785,
+            "costUsd": 0.0192122
+          }
+        },
+        "finalContextTokens": 12129,
+        "baseContextTokens": 5356,
+        "toolCalls": 1,
+        "runs": [
+          17485,
+          18889,
+          17485,
+          17485,
+          18889
+        ]
+      },
+      "reductionPct": 75.78523155329049,
+      "finalReductionPct": 26.267477203647417,
+      "explorationReductionPct": 32.086633911561215
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": 75.78523155329049,
+      "median": 75.78523155329049,
+      "min": 75.78523155329049,
+      "max": 75.78523155329049,
+      "n": 1
+    },
+    "final": {
+      "avg": 26.267477203647417,
+      "median": 26.267477203647417,
+      "min": 26.267477203647417,
+      "max": 26.267477203647417,
+      "n": 1
+    },
+    "exploration": {
+      "avg": 32.086633911561215,
+      "median": 32.086633911561215,
+      "min": 32.086633911561215,
+      "max": 32.086633911561215,
+      "n": 1
+    },
+    "totalCostUsd": 0.1569338
+  }
+}
