@@ -665,6 +665,15 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         return it == affinity_by_path.end() ? 0 : it->second;
     };
 
+    const auto whole_file_for = [&](const std::string& file_path) -> const FileMetadata* {
+        if (snapshot == nullptr) {
+            return nullptr;
+        }
+        const auto it = metadata_by_path.find(file_path);
+        return it != metadata_by_path.end() && it->second->size <= kWholeFileForSymbolBytes ? it->second
+                                                                                             : nullptr;
+    };
+
     // Symbol retrieval: the strongest signal, so it runs first and
     // seeds `matched_files` for the coarser sources below to defer to.
     // Each token is searched independently and results are merged by
@@ -781,14 +790,6 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         // reason -- and those files were 2-5 KB, less than the round trip
         // cost. The file supersedes the symbol item rather than joining
         // it, since it already contains that declaration.
-        const auto whole_file_for = [&](const std::string& file_path) -> const FileMetadata* {
-            if (snapshot == nullptr) {
-                return nullptr;
-            }
-            const auto it = metadata_by_path.find(file_path);
-            return it != metadata_by_path.end() && it->second->size <= kWholeFileForSymbolBytes ? it->second
-                                                                                                 : nullptr;
-        };
 
         int whole_files = 0;
         std::unordered_set<std::string> sent_whole;
@@ -1034,6 +1035,18 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                     ++j;
                 }
 
+                // A hit in a file small enough to send whole brings the
+                // file instead of a thirteen-line window around the line.
+                // Same trade the Symbol tier already makes: measured
+                // 2026-09-24, the file that answered one task was pointed
+                // at by exactly such a hit (5 KB, and the model spent a
+                // turn fetching a range of it), and a round trip costs far
+                // more than the file.
+                std::optional<std::string> whole_content;
+                if (whole_file_for(first.file_path) != nullptr) {
+                    whole_content = FileContent(first.file_path, snapshot->contents, metadata_by_path);
+                }
+
                 ContextItem item;
                 item.id = "keyword:" + first.file_path + ":" + std::to_string(first.line);
                 item.source = ContextSourceKind::Custom;
@@ -1048,7 +1061,16 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 const auto snippet = content.has_value()
                                          ? SliceLines(*content, window_first, window_last, kMaxBodyLines)
                                          : LineSlice{};
-                if (snippet.text.empty()) {
+                if (whole_content.has_value()) {
+                    // Small enough to send whole, so the window becomes the
+                    // file: the same trade the Symbol tier already makes.
+                    // Measured 2026-09-24, the file that answered one task
+                    // was pointed at by exactly such a hit (5 KB) and the
+                    // model still spent a turn fetching a range of it.
+                    item.compression = CompressionLevel::Raw;
+                    item.content = first.file_path + "\n" + *std::move(whole_content);
+                    covered.push_back({first.file_path, 1, std::numeric_limits<int>::max()});
+                } else if (snippet.text.empty()) {
                     item.compression = CompressionLevel::Reference;
                     item.content = first.file_path + ":" + std::to_string(first.line) + ": " + first.text;
                 } else {
