@@ -5,9 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { runHeadless } from './lib/claude-runner.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const repoRoot = path.resolve(__dirname, '..');
+// The repository under test. Defaults to this one, but Core is built for
+// large projects (README.md), and the reduction ceiling is
+// 1 - (core turns / naive turns) -- which rises with how many turns the
+// grep-and-read baseline needs. Measuring only here understates the tool
+// in the regime it targets.
+const repoRoot = path.resolve(process.env.BENCH_REPO ?? path.resolve(__dirname, '..'));
 const cliPath = process.env.CORE_CLI_PATH ?? path.join(repoRoot, 'build', 'Core', 'Debug', 'aistudio_core_cli.exe');
-const tasksPath = path.join(__dirname, 'tasks.json');
+const tasksPath = process.env.BENCH_TASKS_FILE ?? path.join(__dirname, 'tasks.json');
 
 // Every run below spends real usage against whatever account `claude` is
 // logged into (subscription quota, or metered API cost) — this is real
@@ -50,7 +55,16 @@ const CORE_TOOLS = '';
 const naiveMcpConfig = { mcpServers: {} };
 const coreMcpConfig = {
   mcpServers: {
-    'context-reduction-core': { type: 'stdio', command: cliPath, args: ['--mcp'], env: {} },
+    'context-reduction-core': {
+      type: 'stdio',
+      command: cliPath,
+      // --config lets the server run against a repository without adding
+      // a config file to it (BENCH_CORE_CONFIG); without it Core falls
+      // back to that repository's own aistudio.config, and a missing one
+      // means an unbudgeted response.
+      args: process.env.BENCH_CORE_CONFIG ? ['--mcp', '--config', path.resolve(process.env.BENCH_CORE_CONFIG)] : ['--mcp'],
+      env: {},
+    },
   },
 };
 

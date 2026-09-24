@@ -166,7 +166,11 @@ std::vector<std::string> LoadExtraIgnorePatterns(const Config& config) {
 // so context_retrieve's Backend Context Provider retrieval (File/Git
 // Provider, docs/ROADMAP.md "Context Provider SDK") has something to
 // consult; it was deliberately left out of this mode until now.
-int RunMcpMode() {
+// `config_path` lets this server run against a project without editing
+// that project: the settings live wherever the operator keeps them, and
+// project.root inside points at the tree to index. Empty = the
+// conventional aistudio.config in the working directory.
+int RunMcpMode(const std::string& config_path) {
     // Console output disabled (see Logger::SetConsoleEnabled) so nothing
     // but McpServer's own JSON-RPC lines reaches stdout; SetLogFile keeps
     // this observable (AGENT.md #9) without violating that.
@@ -187,8 +191,9 @@ int RunMcpMode() {
     AISTUDIO_LOG_INFO("Core.MCP", "AI Development Studio Core starting in MCP stdio mode");
 
     Config config;
-    if (const auto load_result = config.LoadFromFile("aistudio.config"); !load_result) {
-        AISTUDIO_LOG_WARN("Core.MCP", "no config file found, using defaults: " + load_result.Err().message);
+    const std::string mcp_config_path = config_path.empty() ? "aistudio.config" : config_path;
+    if (const auto load_result = config.LoadFromFile(mcp_config_path); !load_result) {
+        AISTUDIO_LOG_WARN("Core.MCP", "no config file found at " + mcp_config_path + ", using defaults: " + load_result.Err().message);
     }
     const auto project_root = config.GetOr("project.root", ".");
     const auto extra_ignore_patterns = LoadExtraIgnorePatterns(config);
@@ -644,7 +649,13 @@ int RunLspMode() {
 int main(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
         if (std::string_view(argv[i]) == "--mcp") {
-            return RunMcpMode();
+            std::string config_path;
+            for (int j = 1; j < argc - 1; ++j) {
+                if (std::string_view(argv[j]) == "--config") {
+                    config_path = argv[j + 1];
+                }
+            }
+            return RunMcpMode(config_path);
         }
         if (std::string_view(argv[i]) == "--lsp") {
             return RunLspMode();

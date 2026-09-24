@@ -1,0 +1,10 @@
+[
+  { "id": "dx12-descriptor-heap", "intent": "how descriptor heaps are allocated and sub-allocated" },
+  { "id": "dx12-device-init", "intent": "how the D3D12 device and swap chain are created" },
+  { "id": "model-binary-load", "intent": "how a binary model file is parsed into meshes" },
+  { "id": "model-render-system", "intent": "how models are submitted and drawn each frame" },
+  { "id": "shader-loading", "intent": "how precompiled and runtime shaders are loaded" },
+  { "id": "constant-buffer", "intent": "how constant buffers are updated per draw" },
+  { "id": "sprite-renderer", "intent": "how sprites are batched and rendered" },
+  { "id": "framework-loop", "intent": "how the framework main loop drives update and render" }
+]

@@ -25,7 +25,7 @@ import path from 'node:path';
 // takes ~25s to build its index before answering `initialize`. Without the
 // override the server sometimes misses the window, the run silently
 // proceeds with no MCP tools, and "core" degrades into a second naive run.
-export function runHeadless({ cliBin = 'claude', cwd, prompt, mcpConfig, tools, model, timeoutMs = 300000 }) {
+export function runHeadless({ cliBin = 'claude', cwd, prompt, mcpConfig, tools, model, timeoutMs = 600000 }) {
   const args = [
     '-p', prompt,
     '--output-format', 'json',
