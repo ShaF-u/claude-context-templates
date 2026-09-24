@@ -669,6 +669,13 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         if (snapshot == nullptr) {
             return nullptr;
         }
+        if (LooksLikeTestFile(file_path)) {
+            // A test is the least informative answer to "how does this
+            // work" (see kTestFilePenalty), so it never earns the
+            // whole-file treatment. Found 2026-09-24: a 10 KB test came
+            // back whole for a question whose answer cited none of it.
+            return nullptr;
+        }
         const auto it = metadata_by_path.find(file_path);
         return it != metadata_by_path.end() && it->second->size <= kWholeFileForSymbolBytes ? it->second
                                                                                              : nullptr;
