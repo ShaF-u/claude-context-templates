@@ -755,6 +755,7 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
         };
 
         int whole_files = 0;
+        std::unordered_set<std::string> sent_whole;
         for (const auto& [priority, match] : merged) {
             if (!passes_firewall(match.symbol.file_path)) {
                 continue;
@@ -764,6 +765,16 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 dependency_order.push_back(match.symbol.file_path);
             }
 
+            if (sent_whole.count(match.symbol.file_path) != 0) {
+                // This file already went out whole, so emitting one of its
+                // declarations again sends the same bytes twice. Found
+                // 2026-09-24 by diffing what one response contained
+                // against what the answer cited: a function body appeared
+                // both inside its file and as its own item, because the
+                // whole-file cap had been reached by the time the second
+                // match from that file came up.
+                continue;
+            }
             const FileMetadata* metadata =
                 whole_files < kMaxWholeFilesFromSymbols ? whole_file_for(match.symbol.file_path) : nullptr;
             if (metadata != nullptr) {
@@ -772,6 +783,7 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 }
                 if (auto content = FileContent(match.symbol.file_path, snapshot->contents, metadata_by_path)) {
                     ++whole_files;
+                    sent_whole.insert(match.symbol.file_path);
                     covered.push_back({match.symbol.file_path, 1, std::numeric_limits<int>::max()});
                     add_item(MakeFileContextItem(*metadata, *std::move(content),
                                                   bias.Apply(priority, match.symbol.file_path)));
