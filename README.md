@@ -26,8 +26,25 @@ cmake --build build --config Debug --target aistudio_core_cli
 ```
 
 ### Claude Codeへの接続
-`.mcp.json` に `context-reduction-core` として登録済み。プロジェクトルートでビルド後、
-Claude Codeがこのリポジトリを開けば接続候補として現れる（初回は承認が必要）。
+**ユーザースコープに1度登録すれば全プロジェクトで使える。** プロジェクトごとに
+`.mcp.json` を置く必要はない（以前はこのリポジトリに `.mcp.json` があったが、
+`command` が相対パスでカレントディレクトリがこのリポジトリのときしか解決せず、
+他プロジェクトから使えなかったので削除した）。
+
+```
+# 1. ビルドしたバイナリを固定の場所へ置く（リポジトリの外）
+cp build/Core/Debug/aistudio_core_cli.exe ~/.local/bin/
+
+# 2. 1度だけ登録（~/.claude.json に入る）
+claude mcp add --scope user context-reduction-core -- C:\Users\<you>\.local\bin\aistudio_core_cli.exe --mcp
+```
+
+Coreを再ビルドしたら **1 のコピーをやり直す**こと（インストール済みの方は古いまま
+残る）。ベンチは `CORE_CLI_PATH` でビルド出力を直接指すので影響しない。
+
+Coreはインデックス構築に約25秒かかり、Claude CodeのMCP接続タイムアウトの既定は30秒で
+際どい。`~/.claude/settings.json` の `env` に `"MCP_TIMEOUT": "120000"` を入れておく
+（入れないと負荷次第で接続に失敗し、MCPツールが無いまま静かにセッションが始まる）。
 
 ### 設定（`aistudio.config`）
 `--mcp` 起動時にカレントディレクトリの `aistudio.config`（`key=value`）を読む。

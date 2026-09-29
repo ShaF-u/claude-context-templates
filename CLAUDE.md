@@ -29,7 +29,9 @@ cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Debug --target aistudio_core_cli aistudio_core_tests
 ```
 
-ビルド後、`.mcp.json` により `context-reduction-core` としてMCP接続できる（初回承認が必要）。
+ビルド後、`~/.local/bin/` へコピーして `claude mcp add --scope user` で1度登録する
+（`README.md`「Claude Codeへの接続」参照）。このリポジトリに `.mcp.json` は置かない
+— 相対パスのため他プロジェクトから使えなかった。**再ビルドしたらコピーをやり直す**。
 
 ## 作業時の注意
 
