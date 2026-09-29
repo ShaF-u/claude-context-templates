@@ -175,8 +175,17 @@ std::vector<ContextItem> FileProviderBackend::ProvideContext(const std::string& 
         // full of would otherwise become ContextItem::content that
         // crashes the whole response at JSON serialization (invalid
         // UTF-8), not just get skipped for this one file.
+        // CP932 source is text, not binary: skipping it here made this
+        // Backend contribute nothing at all on the GameEngine repo
+        // (most of its Engine/Source is Shift-JIS -- its own CLAUDE.md
+        // says so). Only content that is not CP932 either is treated as
+        // the binary asset this check was written for.
         if (!IsValidUtf8(content)) {
-            continue;
+            auto converted = Cp932ToUtf8(content);
+            if (!converted.has_value()) {
+                continue;
+            }
+            content = std::move(*converted);
         }
 
         const auto found = FindMatches(content, lower_intent, static_cast<int>(context_lines_));

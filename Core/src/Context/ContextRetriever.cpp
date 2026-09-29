@@ -365,7 +365,18 @@ std::optional<std::string> FileContent(const std::string& file_path, FileCache& 
     if (metadata_it == metadata_by_path.end()) {
         return std::nullopt;
     }
-    return contents.Get(*metadata_it->second);
+    auto content = contents.Get(*metadata_it->second);
+    // Not every project saves its source as UTF-8. Measured on the
+    // GameEngine repository (2026-09-29): context_retrieve returned
+    // nothing but "[json.exception.type_error.316] invalid UTF-8 byte at
+    // index 273: 0x82" -- one CP932 file anywhere in the response makes
+    // nlohmann's dump() throw and discards the WHOLE response, so the
+    // model fell back to 10 manual Read/Grep calls. context_fetch
+    // (McpServer.cpp) already did this fallback; retrieval did not.
+    if (content.has_value() && !IsValidUtf8(*content)) {
+        return Cp932ToUtf8(*content); // nullopt => genuinely binary, as before
+    }
+    return content;
 }
 
 // Returns true when the WHOLE definition went in -- a keyword hit inside

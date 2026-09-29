@@ -103,8 +103,17 @@ void ScanLinesForMatches(const std::string& file_path, std::istream& stream,
                 // one match.
                 std::string text = TrimLine(line);
                 if (!IsValidUtf8(text)) {
-                    text_rejected = true;
-                    continue;
+                    // A CP932 line is text -- rejecting it dropped every
+                    // keyword hit in a Shift-JIS file (the whole
+                    // Engine/Source tree on the GameEngine repo). Safe
+                    // per line: CP932 trail bytes never include 0x0A, so
+                    // the line split cannot have cut a character in half.
+                    auto converted = Cp932ToUtf8(text);
+                    if (!converted.has_value()) {
+                        text_rejected = true;
+                        continue;
+                    }
+                    text = std::move(*converted);
                 }
                 valid_text = std::move(text);
             }

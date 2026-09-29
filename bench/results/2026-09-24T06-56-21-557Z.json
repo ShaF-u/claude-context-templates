@@ -1,0 +1,190 @@
+{
+  "ranAt": "2026-09-24T07:07:45.982Z",
+  "model": "default",
+  "complete": true,
+  "results": [
+    {
+      "id": "dx12-descriptor-heap",
+      "intent": "how descriptor heaps are allocated and sub-allocated",
+      "naive": {
+        "contextTokens": 53971,
+        "outputTokens": 1604,
+        "costUsd": 0.10503939999999999,
+        "subagentsSpawned": 0,
+        "numTurns": 8,
+        "sessionId": "c53f0837-b87a-414e-81b6-4c6da9e8d8ca",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 53971,
+            "outputTokens": 1604,
+            "costUsd": 0.10503939999999999
+          }
+        },
+        "finalContextTokens": 16902,
+        "baseContextTokens": 8936,
+        "toolCalls": 7,
+        "runs": [
+          53909,
+          64415,
+          53971
+        ]
+      },
+      "core": {
+        "contextTokens": 87159,
+        "outputTokens": 1925,
+        "costUsd": 0.19385000000000002,
+        "subagentsSpawned": 0,
+        "numTurns": 11,
+        "sessionId": "2ee921c8-f420-4abb-940a-dd1d868d097e",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 87159,
+            "outputTokens": 1925,
+            "costUsd": 0.19385000000000002
+          }
+        },
+        "finalContextTokens": 19557,
+        "baseContextTokens": 7815,
+        "toolCalls": 10,
+        "runs": [
+          87159,
+          87085,
+          107930
+        ]
+      },
+      "reductionPct": -61.492282892664576,
+      "finalReductionPct": -15.708200212992551,
+      "explorationReductionPct": -47.401456188802406
+    },
+    {
+      "id": "dx12-device-init",
+      "intent": "how the D3D12 device and swap chain are created",
+      "naive": {
+        "contextTokens": 72408,
+        "outputTokens": 1527,
+        "costUsd": 0.1187306,
+        "subagentsSpawned": 0,
+        "numTurns": 6,
+        "sessionId": "94ca19fb-4a7c-480d-9736-bcb0db0c5432",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 72408,
+            "outputTokens": 1527,
+            "costUsd": 0.1187306
+          }
+        },
+        "finalContextTokens": 18377,
+        "baseContextTokens": 8932,
+        "toolCalls": 5,
+        "runs": [
+          93622,
+          72345,
+          72408
+        ]
+      },
+      "core": {
+        "contextTokens": 60474,
+        "outputTokens": 1399,
+        "costUsd": 0.12033580000000002,
+        "subagentsSpawned": 0,
+        "numTurns": 7,
+        "sessionId": "4ea34323-2f58-4ba4-92bb-beafd5e717f0",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 60474,
+            "outputTokens": 1399,
+            "costUsd": 0.12033580000000002
+          }
+        },
+        "finalContextTokens": 18244,
+        "baseContextTokens": 7811,
+        "toolCalls": 6,
+        "runs": [
+          42268,
+          61875,
+          60474
+        ]
+      },
+      "reductionPct": 16.481604242625124,
+      "finalReductionPct": 0.7237307503945134,
+      "explorationReductionPct": -10.460561143462144
+    },
+    {
+      "id": "model-binary-load",
+      "intent": "how a binary model file is parsed into meshes",
+      "naive": {
+        "contextTokens": 33002,
+        "outputTokens": 837,
+        "costUsd": 0.0233632,
+        "subagentsSpawned": 0,
+        "numTurns": 4,
+        "sessionId": "a1d016ca-3524-47b7-969c-d8aa05f7a6f8",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 33002,
+            "outputTokens": 837,
+            "costUsd": 0.0233632
+          }
+        },
+        "finalContextTokens": 14530,
+        "baseContextTokens": 8931,
+        "toolCalls": 3,
+        "runs": [
+          49144,
+          33002,
+          33002
+        ]
+      },
+      "core": {
+        "contextTokens": 35284,
+        "outputTokens": 971,
+        "costUsd": 0.05094460000000001,
+        "subagentsSpawned": 0,
+        "numTurns": 4,
+        "sessionId": "fa6641bf-e281-4f66-b76a-963a42b7506a",
+        "byModel": {
+          "claude-opus-5-5": {
+            "contextTokens": 35284,
+            "outputTokens": 971,
+            "costUsd": 0.05094460000000001
+          }
+        },
+        "finalContextTokens": 11096,
+        "baseContextTokens": 7810,
+        "toolCalls": 3,
+        "runs": [
+          35282,
+          37676,
+          35284
+        ]
+      },
+      "reductionPct": -6.914732440458149,
+      "finalReductionPct": 23.633860977288368,
+      "explorationReductionPct": 41.31094838363993
+    }
+  ],
+  "stats": {
+    "cumulative": {
+      "avg": -17.3084703634992,
+      "median": -6.914732440458149,
+      "min": -61.492282892664576,
+      "max": 16.481604242625124,
+      "n": 3
+    },
+    "final": {
+      "avg": 2.8831305048967764,
+      "median": 0.7237307503945134,
+      "min": -15.708200212992551,
+      "max": 23.633860977288368,
+      "n": 3
+    },
+    "exploration": {
+      "avg": -5.517022982874873,
+      "median": -10.460561143462144,
+      "min": -47.401456188802406,
+      "max": 41.31094838363993,
+      "n": 3
+    },
+    "totalCostUsd": 0.6122636000000001
+  }
+}
