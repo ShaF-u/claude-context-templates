@@ -117,6 +117,35 @@ naive中央値 72,208 / core 17,485 = 75.8%削減 (core側は1回の呼び出し
 規模のコードベース**(README.md「大規模プロジェクト向け」)で測るべき。naiveの
 ターン数が増えるほど上限 1-(coreターン/naiveターン) は上がる。
 
+## ペイロードの内訳（2026-09-29、次にやること）
+
+GameEngineを対象にした実測で、core側は1呼び出しで答えても naive に負けることが確定した。
+
+```
+model-binary-load: core 1呼び出し(理論下限)
+  core  base 7,814 / final 14,682 / exploration 6,868
+  naive base 8,935 / final 14,534 / exploration 5,599  (3呼び出し)
+```
+
+ターン数の問題(1-(coreターン/naiveターン))は解けている。残るのは1回あたりの
+ペイロードサイズだけ。CLIに直接JSON-RPCを流して内訳を測ると(Claude実行不要=無料)、
+大半がノイズだった:
+
+| タスク | ノイズ | 割合 |
+|---|---|---|
+| dx12-device-init | `.vcxproj` のkeywordヒット4件(7.9KB) + 無関係な Mesh.cpp/ImGuiManager.cpp(9.3KB) | 72% |
+| dx12-descriptor-heap | `.vcxproj` / `.vcxproj.filters` 3件 | 23% |
+| model-binary-load | CLAUDE.md のkeywordヒット2件(3.4KB) + そこ由来の見出し3つ | 28% |
+
+`.vcxproj` はビルド定義XMLで、どの質問の答えにも使われていない。CLAUDE.md は
+Claude Codeがセッション開始時に読むので純粋な重複 — `backend.core.project_rules.files=`
+で止めたはずが keyword_search 経路から入り込んでいた。
+
+次の一手は `scan.extra_ignore_patterns` に `*.vcxproj,*.vcxproj.filters,*.sln,CLAUDE.md`
+を追加すること。これは上の「このベンチが測っていないもの」で禁じた**答えを削る方向では
+なく、ノイズ除去**であり、過去4回の測定で効く側と確認されている。効果はオフラインで
+ペイロードサイズだけ先に確認できる。
+
 ## 計測対象が動く問題（重要）
 
 このベンチのタスクは `Core/` 自身について問うので、**Coreを変更すると計測対象も変わる**。
