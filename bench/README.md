@@ -10,7 +10,7 @@
 - **naive**: `--strict-mcp-config` でMCPサーバーを一切繋がず、`--tools Read,Grep,Glob` で自力調査させる。
 - **core**: `context-reduction-core`（Core CLIをMCPサーバーとして起動）を繋ぎ、`--tools ""` で
   組み込みツールを全て外し、MCPのツールだけで同じ調査をさせる。Core側は `aistudio.config` の
-  `mcp.tools` で `context_retrieve` / `context_fetch` / `symbol_search` に絞っている。
+  `mcp.tools` で `context_retrieve` / `context_fetch` / `symbol_search` / `keyword_search` に絞っている。
 
 どちらも**実際にAPIを叩いた本物のセッション**で、3つの数字を出す。
 
@@ -33,7 +33,7 @@ contextTokens = input_tokens + cache_creation_input_tokens + cache_read_input_to
 ### MCPの固定オーバーヘッドが含まれる理由
 
 `core`側の初回ターンのコンテキスト（= base）にCore MCPサーバーのツール定義がそのまま乗る。
-`mcp.tools` で3つに絞った状態で、naive（Read/Grep/Glob）より小さい（約6.4k vs 7.8k）。
+`mcp.tools` で4つに絞った状態で、naive（Read/Grep/Glob）より小さい（約6.4k vs 7.8k）。
 
 ### サブエージェント消費が含まれる理由
 
@@ -141,10 +141,27 @@ model-binary-load: core 1呼び出し(理論下限)
 Claude Codeがセッション開始時に読むので純粋な重複 — `backend.core.project_rules.files=`
 で止めたはずが keyword_search 経路から入り込んでいた。
 
-次の一手は `scan.extra_ignore_patterns` に `*.vcxproj,*.vcxproj.filters,*.sln,CLAUDE.md`
-を追加すること。これは上の「このベンチが測っていないもの」で禁じた**答えを削る方向では
-なく、ノイズ除去**であり、過去4回の測定で効く側と確認されている。効果はオフラインで
-ペイロードサイズだけ先に確認できる。
+### 実施結果（2026-09-29、`node bench/payload.mjs` でオフライン計測）
+
+`bench/configs/gameengine.config` の `scan.extra_ignore_patterns` に
+`*.vcxproj,*.vcxproj.filters,*.sln,CLAUDE.md` を追加した。**単独では総量 -2% しか
+減らなかった**: 除外で空いた枠を、別の無関係なファイル（ImGuiManager.cpp など）が
+埋めた。dx12-descriptor-heap はむしろ +49% になった。原因は、キーワードヒットの
+全文昇格に件数上限もカットオフもなかったこと。カットオフの下で「呼び出し元」として
+例外的に残るだけの弱いヒットまで、ファイル全体を連れてきていた。
+
+`ContextRetriever` を修正し、キーワードヒットの全文昇格は、Relative cutoff を自力で
+通過する強さのヒットに限った。弱いヒットは13行の窓に戻る。
+
+| 対象 | ベースライン | 除外パターン追加 | ＋全文昇格の修正 |
+|---|---|---|---|
+| GameEngine 8タスク | 120,645 chars | 118,249 (-2.0%) | 111,969 (**-7.2%**) |
+| Core 15タスク | 263,464 | — | 241,525 (**-8.3%**) |
+
+残っている最大のノイズは dx12-device-init の ImGuiManager.cpp / Mesh.cpp（計9.4KB）。
+どちらも "device" の実使用箇所で、スコア上はカットオフを通過する強いヒットになる。
+削るには順位付けそのものに手を入れる必要がある。**ここまでは実行コストゼロの
+オフライン計測で、Claudeを使った本ベンチ（`BENCH_REPEAT=3`）はまだ回していない。**
 
 ## 計測対象が動く問題（重要）
 

@@ -1060,11 +1060,6 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 // at by exactly such a hit (5 KB, and the model spent a
                 // turn fetching a range of it), and a round trip costs far
                 // more than the file.
-                std::optional<std::string> whole_content;
-                if (whole_file_for(first.file_path) != nullptr) {
-                    whole_content = FileContent(first.file_path, snapshot->contents, metadata_by_path);
-                }
-
                 ContextItem item;
                 item.id = "keyword:" + first.file_path + ":" + std::to_string(first.line);
                 item.source = ContextSourceKind::Custom;
@@ -1074,6 +1069,24 @@ std::vector<ContextItem> ContextRetriever::Retrieve(const std::string& intent, R
                 }
                 item.priority = bias.Apply(priority, first.file_path);
                 item.depends_on = {first.file_path};
+
+                // ...but only a hit strong enough to survive the Relative
+                // cutoff on its own. A weaker one is kept, if at all, only
+                // as a call site (see that block), and a call site is the
+                // window around the call, not the caller's whole file.
+                // Measured 2026-09-29 (GameEngine, bench/payload.mjs): two
+                // such hits brought ImGuiManager.cpp and Mesh.cpp whole,
+                // 9.4 KB of a 20 KB response to "how the D3D12 device and
+                // swap chain are created".
+                int best_so_far = item.priority;
+                for (const auto& existing : items) {
+                    best_so_far = std::max(best_so_far, existing.priority);
+                }
+                std::optional<std::string> whole_content;
+                if (item.priority >= best_so_far - kRelativePriorityCutoff &&
+                    whole_file_for(first.file_path) != nullptr) {
+                    whole_content = FileContent(first.file_path, snapshot->contents, metadata_by_path);
+                }
 
                 const auto content = FileContent(first.file_path, snapshot->contents, metadata_by_path);
                 const auto snippet = content.has_value()
